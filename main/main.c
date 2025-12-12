@@ -340,7 +340,7 @@ void app_main(void) {
         }
 
         // Check battery level
-        if (power_is_battery_critical()) {
+        if (power_is_battery_critical() && false) {
             ESP_LOGW(TAG, "Battery critical! Entering deep sleep.");
             
             // Display low battery warning
