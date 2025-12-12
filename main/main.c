@@ -109,7 +109,11 @@ static void settings_callback(const app_settings_t *settings, void *ctx) {
 }
 
 static void image_callback(const char *filename, bool added, void *ctx) {
-    ESP_LOGI(TAG, "Image %s: %s", added ? "added" : "removed", filename);
+    if (filename) {
+        ESP_LOGI(TAG, "Image %s: %s", added ? "added" : "removed", filename);
+    } else {
+        ESP_LOGI(TAG, "All images deleted");
+    }
     carousel_refresh();
 }
 
@@ -316,7 +320,8 @@ void app_main(void) {
     setup_buttons();
     
     // Start button polling task
-    xTaskCreate(button_poll_task, "buttons", 2048, NULL, 10, NULL);
+    // Increased stack size to 8192 to prevent overflow during WiFi operations and logging
+    xTaskCreate(button_poll_task, "buttons", 8192, NULL, 10, NULL);
     
     // Start carousel
     carousel_start();
