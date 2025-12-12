@@ -5,6 +5,7 @@
 
 #include "epaper_driver.h"
 #include "board_config.h"
+#include "font_16x24.h"
 
 #include <string.h>
 #include "freertos/FreeRTOS.h"
@@ -610,7 +611,48 @@ void epd_draw_text(int x, int y, const char *text, int size, uint8_t color) {
     }
 }
 
+void epd_draw_text_large(int x, int y, const char *text, int size, uint8_t color) {
+    if (!text) return;
+    
+    int cursor_x = x;
+    
+    while (*text) {
+        char c = *text++;
+        
+        // Only handle printable ASCII
+        if (c < ' ' || c > '~') {
+            cursor_x += 16 * size;
+            continue;
+        }
+        
+        int font_idx = (c - ' ');
+        
+        for (int row = 0; row < 24; row++) {
+            uint16_t line = font_16x24[font_idx * 24 + row];
+            
+            for (int col = 0; col < 16; col++) {
+                if (line & (0x8000 >> col)) {
+                    for (int sy = 0; sy < size; sy++) {
+                        for (int sx = 0; sx < size; sx++) {
+                            epd_set_pixel(cursor_x + col * size + sx, 
+                                         y + row * size + sy, 
+                                         color);
+                        }
+                    }
+                }
+            }
+        }
+        
+        cursor_x += 16 * size;
+    }
+}
+
 int epd_get_text_width(const char *text, int size) {
     if (!text) return 0;
     return strlen(text) * 8 * size;
+}
+
+int epd_get_text_width_large(const char *text, int size) {
+    if (!text) return 0;
+    return strlen(text) * 16 * size;
 }

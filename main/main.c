@@ -154,16 +154,16 @@ static void display_startup_screen(void) {
     const char *title = "E1001 Photo Frame";
     const char *version = "v1.0.0";
     
-    int title_w = epd_get_text_width(title, 3);
-    int version_w = epd_get_text_width(version, 2);
+    int title_w = epd_get_text_width_large(title, 2);
+    int version_w = epd_get_text_width_large(version, 1);
     
-    epd_draw_text((EPAPER_WIDTH - title_w) / 2, EPAPER_HEIGHT / 2 - 40, title, 3, 0);
-    epd_draw_text((EPAPER_WIDTH - version_w) / 2, EPAPER_HEIGHT / 2 + 20, version, 2, 0);
+    epd_draw_text_large((EPAPER_WIDTH - title_w) / 2, EPAPER_HEIGHT / 2 - 40, title, 2, 0);
+    epd_draw_text_large((EPAPER_WIDTH - version_w) / 2, EPAPER_HEIGHT / 2 + 20, version, 1, 0);
     
     // Show status
     char status[64];
     snprintf(status, sizeof(status), "Battery: %d%%", power_get_battery_percent());
-    epd_draw_text(20, EPAPER_HEIGHT - 60, status, 2, 0);
+    epd_draw_text_large(20, EPAPER_HEIGHT - 60, status, 1, 0);
     
     if (storage_sd_mounted()) {
         int count = storage_get_image_count();
@@ -171,7 +171,7 @@ static void display_startup_screen(void) {
     } else {
         snprintf(status, sizeof(status), "SD Card: Not found");
     }
-    epd_draw_text(20, EPAPER_HEIGHT - 30, status, 2, 0);
+    epd_draw_text_large(20, EPAPER_HEIGHT - 30, status, 1, 0);
     
     epd_display(fb, EPD_UPDATE_FULL);
 }

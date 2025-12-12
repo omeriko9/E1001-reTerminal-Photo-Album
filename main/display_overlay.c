@@ -19,7 +19,7 @@ void overlay_get_default_config(overlay_config_t *config) {
     config->show_battery = true;
     config->show_wifi = true;
     config->timezone_offset = 0;
-    config->font_size = 2;
+    config->font_size = 1;
     config->datetime_color = 0;  // Black on white background
     config->datetime_pos = OVERLAY_POS_BOTTOM_LEFT;
     config->temp_pos = OVERLAY_POS_BOTTOM_RIGHT;
@@ -64,13 +64,13 @@ void overlay_draw_datetime(uint8_t *fb, int x, int y, int font_size,
     strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M", &timeinfo);
     
     // Draw background box for readability
-    int text_w = epd_get_text_width(buf, font_size);
-    int text_h = 16 * font_size;
+    int text_w = epd_get_text_width_large(buf, font_size);
+    int text_h = 24 * font_size;
     int pad = 4;
     
     // Invert color for background
     epd_fill_rect(x - pad, y - pad, text_w + pad * 2, text_h + pad * 2, color ? 0 : 1);
-    epd_draw_text(x, y, buf, font_size, color);
+    epd_draw_text_large(x, y, buf, font_size, color);
 }
 
 void overlay_draw_battery(uint8_t *fb, int x, int y, int font_size,
@@ -84,21 +84,21 @@ void overlay_draw_battery(uint8_t *fb, int x, int y, int font_size,
     int pad = 4;
     
     // Background
-    epd_fill_rect(x - pad, y - pad, icon_w + epd_get_text_width(buf, font_size) + pad * 3, 
+    epd_fill_rect(x - pad, y - pad, icon_w + epd_get_text_width_large(buf, font_size) + pad * 3, 
                   icon_h + pad * 2, color ? 0 : 1);
     
     // Battery outline
-    epd_draw_rect(x, y, 20 * font_size, 10 * font_size, color ? 0 : 1);
-    epd_fill_rect(x + 20 * font_size, y + 3 * font_size, 3 * font_size, 4 * font_size, color ? 0 : 1);
+    epd_draw_rect(x, y, 20 * font_size, 10 * font_size, color);
+    epd_fill_rect(x + 20 * font_size, y + 3 * font_size, 3 * font_size, 4 * font_size, color);
     
     // Fill level
     int fill_w = (16 * font_size * percent) / 100;
     if (fill_w > 0) {
-        epd_fill_rect(x + 2, y + 2, fill_w, 6 * font_size, color ? 0 : 1);
+        epd_fill_rect(x + 2, y + 2, fill_w, 6 * font_size, color);
     }
     
     // Percentage text
-    epd_draw_text(x + icon_w + pad, y - 2, buf, font_size, color);
+    epd_draw_text_large(x + icon_w + pad, y - 2, buf, font_size, color);
 }
 
 void overlay_draw_temperature(uint8_t *fb, int x, int y, int font_size,
@@ -111,31 +111,31 @@ void overlay_draw_temperature(uint8_t *fb, int x, int y, int font_size,
         snprintf(buf, sizeof(buf), "%.1fC", celsius);
     }
     
-    int text_w = epd_get_text_width(buf, font_size);
-    int text_h = 16 * font_size;
+    int text_w = epd_get_text_width_large(buf, font_size);
+    int text_h = 24 * font_size;
     int pad = 4;
     
     epd_fill_rect(x - pad, y - pad, text_w + pad * 2, text_h + pad * 2, color ? 0 : 1);
-    epd_draw_text(x, y, buf, font_size, color);
+    epd_draw_text_large(x, y, buf, font_size, color);
 }
 
 void overlay_draw_wifi(uint8_t *fb, int x, int y, int font_size,
                        uint8_t color, bool connected) {
     const char *text = connected ? "WiFi" : "----";
     
-    int text_w = epd_get_text_width(text, font_size);
-    int text_h = 16 * font_size;
+    int text_w = epd_get_text_width_large(text, font_size);
+    int text_h = 24 * font_size;
     int pad = 4;
     
     epd_fill_rect(x - pad, y - pad, text_w + pad * 2, text_h + pad * 2, color ? 0 : 1);
-    epd_draw_text(x, y, text, font_size, color);
+    epd_draw_text_large(x, y, text, font_size, color);
 }
 
 void overlay_draw(uint8_t *fb, const overlay_config_t *config,
                   uint8_t battery_percent, float temp_celsius, bool wifi_connected) {
     if (!fb || !config) return;
     
-    int text_h = 16 * config->font_size;
+    int text_h = 24 * config->font_size;
     int x, y;
     
     // Draw date/time

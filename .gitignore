@@ -49,3 +49,7 @@ partition_table/*.bin
 
 # SPIFFS binaries
 spiffs/*.bin
+build_app_output.txt
+.gitignore
+build_output.txt
+build_log.txt

@@ -140,11 +140,11 @@ static void display_no_images(void) {
     const char *msg2 = "Connect to WiFi to upload images";
     
     int y = EPAPER_HEIGHT / 2 - 30;
-    int x1 = (EPAPER_WIDTH - epd_get_text_width(msg1, 3)) / 2;
-    int x2 = (EPAPER_WIDTH - epd_get_text_width(msg2, 2)) / 2;
+    int x1 = (EPAPER_WIDTH - epd_get_text_width_large(msg1, 2)) / 2;
+    int x2 = (EPAPER_WIDTH - epd_get_text_width_large(msg2, 1)) / 2;
     
-    epd_draw_text(x1, y, msg1, 3, 0);
-    epd_draw_text(x2, y + 50, msg2, 2, 0);
+    epd_draw_text_large(x1, y, msg1, 2, 0);
+    epd_draw_text_large(x2, y + 60, msg2, 1, 0);
     
     // Draw WiFi info
     wifi_mgr_info_t wifi_info;
@@ -153,12 +153,12 @@ static void display_no_images(void) {
     char ip_msg[64];
     if (wifi_info.mode == WIFI_MGR_MODE_AP) {
         snprintf(ip_msg, sizeof(ip_msg), "Connect to: %s", wifi_info.ap_ssid);
-        epd_draw_text(20, EPAPER_HEIGHT - 60, ip_msg, 2, 0);
+        epd_draw_text_large(20, EPAPER_HEIGHT - 60, ip_msg, 1, 0);
         snprintf(ip_msg, sizeof(ip_msg), "Open: http://%s", wifi_info.ap_ip_addr);
-        epd_draw_text(20, EPAPER_HEIGHT - 30, ip_msg, 2, 0);
+        epd_draw_text_large(20, EPAPER_HEIGHT - 30, ip_msg, 1, 0);
     } else if (wifi_info.status == WIFI_MGR_STATUS_CONNECTED) {
         snprintf(ip_msg, sizeof(ip_msg), "Web UI: http://%s", wifi_info.ip_addr);
-        epd_draw_text(20, EPAPER_HEIGHT - 30, ip_msg, 2, 0);
+        epd_draw_text_large(20, EPAPER_HEIGHT - 30, ip_msg, 1, 0);
     }
     
     epd_display(fb, EPD_UPDATE_FULL);
@@ -175,12 +175,12 @@ static void display_connect_screen(const char *ip) {
     char msg2[64];
     snprintf(msg2, sizeof(msg2), "http://%s", ip);
     
-    int x1 = (EPAPER_WIDTH - epd_get_text_width(msg1, 3)) / 2;
-    int x2 = (EPAPER_WIDTH - epd_get_text_width(msg2, 3)) / 2;
-    int y = EPAPER_HEIGHT / 2 - 30;
+    int x1 = (EPAPER_WIDTH - epd_get_text_width_large(msg1, 1)) / 2;
+    int x2 = (EPAPER_WIDTH - epd_get_text_width_large(msg2, 2)) / 2;
+    int y = EPAPER_HEIGHT / 2 - 40;
     
-    epd_draw_text(x1, y, msg1, 3, 0);
-    epd_draw_text(x2, y + 50, msg2, 3, 0);
+    epd_draw_text_large(x1, y, msg1, 1, 0);
+    epd_draw_text_large(x2, y + 40, msg2, 2, 0);
     
     epd_display(fb, EPD_UPDATE_FULL);
 }

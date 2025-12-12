@@ -156,3 +156,18 @@ void epd_draw_text(int x, int y, const char *text, int size, uint8_t color);
  * @brief Get text width in pixels
  */
 int epd_get_text_width(const char *text, int size);
+
+/**
+ * @brief Draw text using large 16x24 font
+ * @param x X position
+ * @param y Y position
+ * @param text Text string
+ * @param size Font size (1-3)
+ * @param color Text color
+ */
+void epd_draw_text_large(int x, int y, const char *text, int size, uint8_t color);
+
+/**
+ * @brief Get text width in pixels for large font
+ */
+int epd_get_text_width_large(const char *text, int size);
