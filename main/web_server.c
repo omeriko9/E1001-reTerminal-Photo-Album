@@ -213,7 +213,7 @@ static const char HTML_SCRIPT[] =
     "if(!d||!d.images){g.innerHTML='<p>No images</p>';return}"
     "g.innerHTML=d.images.map((img,i)=>"
     "'<div class=\"image-card\">"
-    "<div class=\"preview\"><img src=\"'+API+'/files/'+img.name+'\" style=\"max-width:100%;max-height:100%;object-fit:contain\" onerror=\"this.style.display=\\'none\\';this.parentNode.innerText=\\''+img.name.split('.').pop().toUpperCase()+'\\'\"></div>"
+    "<div class=\"preview\"><img src=\"'+API+'/files/'+encodeURIComponent(img.name)+'\" style=\"max-width:100%;max-height:100%;object-fit:contain\" onerror=\"this.style.display=\\'none\\';this.parentNode.innerText=\\''+img.name.split('.').pop().toUpperCase()+'\\'\"></div>"
     "<div class=\"info\"><div class=\"name\">'+img.name+'</div>"
     "<div class=\"size\">'+(img.size/1024).toFixed(1)+' KB</div></div>"
     "<div class=\"actions\">"
@@ -897,13 +897,35 @@ static esp_err_t handle_reset(httpd_req_t *req)
 
 static esp_err_t handle_get_file(httpd_req_t *req)
 {
-    const char *filename = strrchr(req->uri, '/');
-    if (!filename)
+    const char *filename_ptr = strrchr(req->uri, '/');
+    if (!filename_ptr)
     {
         httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid filename");
         return ESP_FAIL;
     }
-    filename++; // Skip '/'
+    filename_ptr++; // Skip '/'
+
+    char filename[MAX_FILENAME_LEN];
+    strncpy(filename, filename_ptr, sizeof(filename) - 1);
+    filename[sizeof(filename) - 1] = '\0';
+
+    // URL decode
+    char *dst = filename;
+    for (char *src = filename; *src; src++)
+    {
+        if (*src == '%' && src[1] && src[2])
+        {
+            int val;
+            sscanf(src + 1, "%2x", &val);
+            *dst++ = (char)val;
+            src += 2;
+        }
+        else
+        {
+            *dst++ = *src;
+        }
+    }
+    *dst = '\0';
 
     // Determine MIME type
     const char *ext = strrchr(filename, '.');
