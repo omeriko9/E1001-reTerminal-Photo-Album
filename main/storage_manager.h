@@ -30,6 +30,7 @@ typedef struct {
     bool show_datetime;                 // Show date/time overlay
     bool show_temperature;              // Show temperature overlay
     bool show_battery;                  // Show battery level overlay
+    bool show_wifi;                     // Show WiFi status overlay
     int8_t timezone_offset;             // UTC offset in hours
     bool auto_brightness;               // Auto brightness (if supported)
     uint8_t current_image_index;        // Currently displayed image

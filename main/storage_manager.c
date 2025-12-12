@@ -411,6 +411,7 @@ void storage_reset_settings(app_settings_t *settings) {
     settings->show_datetime = true;
     settings->show_temperature = true;
     settings->show_battery = true;
+    settings->show_wifi = true;
     settings->timezone_offset = 0;
     settings->auto_brightness = false;
     settings->current_image_index = 0;

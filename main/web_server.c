@@ -144,6 +144,10 @@ static const char HTML_DASHBOARD_BODY[] =
     "<label for='show-battery'>Show Battery Level</label>"
     "</div>"
     "<div class='form-group checkbox-group'>"
+    "<input type='checkbox' id='show-wifi' checked>"
+    "<label for='show-wifi'>Show WiFi Status</label>"
+    "</div>"
+    "<div class='form-group checkbox-group'>"
     "<input type='checkbox' id='random-order'>"
     "<label for='random-order'>Random Order</label>"
     "</div>"
@@ -226,6 +230,7 @@ static const char HTML_SCRIPT[] =
     "document.getElementById('show-datetime').checked=d.show_datetime!==false;"
     "document.getElementById('show-temp').checked=d.show_temperature!==false;"
     "document.getElementById('show-battery').checked=d.show_battery!==false;"
+    "document.getElementById('show-wifi').checked=d.show_wifi!==false;"
     "document.getElementById('random-order').checked=d.random_order===true;"
     "document.getElementById('fit-mode').checked=d.fit_mode===true}}"
 
@@ -237,6 +242,7 @@ static const char HTML_SCRIPT[] =
     "show_datetime:document.getElementById('show-datetime').checked,"
     "show_temperature:document.getElementById('show-temp').checked,"
     "show_battery:document.getElementById('show-battery').checked,"
+    "show_wifi:document.getElementById('show-wifi').checked,"
     "random_order:document.getElementById('random-order').checked,"
     "fit_mode:document.getElementById('fit-mode').checked};"
     "const r=await fetchJSON(API+'/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});"
@@ -682,6 +688,7 @@ static esp_err_t handle_get_settings(httpd_req_t *req)
     cJSON_AddBoolToObject(root, "show_datetime", settings.show_datetime);
     cJSON_AddBoolToObject(root, "show_temperature", settings.show_temperature);
     cJSON_AddBoolToObject(root, "show_battery", settings.show_battery);
+    cJSON_AddBoolToObject(root, "show_wifi", settings.show_wifi);
     cJSON_AddBoolToObject(root, "random_order", settings.random_order);
     cJSON_AddBoolToObject(root, "fit_mode", settings.fit_mode);
 
@@ -722,10 +729,15 @@ static esp_err_t handle_set_settings(httpd_req_t *req)
     if ((val = cJSON_GetObjectItem(json, "wifi_timeout")))
         settings.wifi_timeout_sec = val->valueint;
     if ((val = cJSON_GetObjectItem(json, "timezone")))
-        if ((val = cJSON_GetObjectItem(json, "show_temperature")))
-            settings.show_temperature = cJSON_IsTrue(val);
+        settings.timezone_offset = val->valueint;
+    if ((val = cJSON_GetObjectItem(json, "show_datetime")))
+        settings.show_datetime = cJSON_IsTrue(val);
+    if ((val = cJSON_GetObjectItem(json, "show_temperature")))
+        settings.show_temperature = cJSON_IsTrue(val);
     if ((val = cJSON_GetObjectItem(json, "show_battery")))
         settings.show_battery = cJSON_IsTrue(val);
+    if ((val = cJSON_GetObjectItem(json, "show_wifi")))
+        settings.show_wifi = cJSON_IsTrue(val);
     if ((val = cJSON_GetObjectItem(json, "random_order")))
         settings.random_order = cJSON_IsTrue(val);
     if ((val = cJSON_GetObjectItem(json, "fit_mode")))

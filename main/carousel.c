@@ -108,6 +108,7 @@ static void display_image(int index) {
     overlay_cfg.show_datetime = s_settings.show_datetime;
     overlay_cfg.show_temperature = s_settings.show_temperature;
     overlay_cfg.show_battery = s_settings.show_battery;
+    overlay_cfg.show_wifi = s_settings.show_wifi;
     overlay_cfg.timezone_offset = s_settings.timezone_offset;
     
     wifi_mgr_info_t wifi_info;
