@@ -51,7 +51,7 @@ static void wifi_timeout_callback(TimerHandle_t timer) {
     s_wifi_shutdown_requested = true;
 }
 
-static void reset_wifi_timer(void) {
+void app_reset_wifi_timer(void) {
     if (s_wifi_timer && s_wifi_timeout_sec > 0) {
         xTimerChangePeriod(s_wifi_timer, pdMS_TO_TICKS(s_wifi_timeout_sec * 1000), 0);
         xTimerReset(s_wifi_timer, 0);
@@ -70,14 +70,14 @@ static void wifi_callback(wifi_mgr_status_t status, void *ctx) {
         case WIFI_MGR_STATUS_AP_ACTIVE:
             ESP_LOGI(TAG, "AP mode active - starting web server");
             webserver_start();
-            reset_wifi_timer();
+            app_reset_wifi_timer();
             break;
             
         case WIFI_MGR_STATUS_CONNECTED:
             ESP_LOGI(TAG, "Connected to WiFi - starting web server and time sync");
             webserver_start();
             overlay_sync_time();
-            reset_wifi_timer();
+            app_reset_wifi_timer();
             
             // Show IP address on screen
             wifi_mgr_info_t info;
@@ -96,7 +96,7 @@ static void wifi_callback(wifi_mgr_status_t status, void *ctx) {
             
         case WIFI_MGR_STATUS_AP_STATION_DISCONNECTED:
             ESP_LOGI(TAG, "Client disconnected from AP - restarting auto-off timer");
-            reset_wifi_timer();
+            app_reset_wifi_timer();
             break;
             
         default:
@@ -199,7 +199,7 @@ static void button_poll_task(void *arg) {
                 carousel_handle_button(i);
                 
                 // Reset WiFi timer on any button press
-                reset_wifi_timer();
+                app_reset_wifi_timer();
             }
             last_state[i] = states[i];
         }

@@ -16,6 +16,9 @@
 #include "esp_log.h"
 #include "cJSON.h"
 
+// External function from main.c to prevent sleep during activity
+extern void app_reset_wifi_timer(void);
+
 #ifndef MIN
 #define MIN(a, b) (((a) < (b)) ? (a) : (b))
 #endif
@@ -508,6 +511,9 @@ static esp_err_t handle_upload(httpd_req_t *req)
 
     while (remaining > 0)
     {
+        // Reset WiFi timeout timer to prevent sleep during upload
+        app_reset_wifi_timer();
+
         // Read into buf, leave space for null terminator
         received = httpd_req_recv(req, buf, MIN(remaining, sizeof(buf) - 1));
         if (received <= 0)
