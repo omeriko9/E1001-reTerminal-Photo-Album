@@ -11,6 +11,7 @@ idf_component_register(
         "carousel.c"
         "display_overlay.c"
         "sht40.c"
+        "tjpgd.c"
     INCLUDE_DIRS 
         "."
     REQUIRES 

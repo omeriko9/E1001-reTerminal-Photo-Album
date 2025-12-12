@@ -12,6 +12,7 @@
 #include <math.h>
 #include "esp_log.h"
 #include "esp_heap_caps.h"
+#include "tjpgd.h"
 
 // #define STBI_NO_STDIO  <-- REMOVED THIS LINE
 #define STBI_ONLY_JPEG
@@ -568,6 +569,71 @@ esp_err_t img_process(const uint8_t *input, size_t input_size,
     return ESP_OK;
 }
 
+// Combined context for tjpgd input and output
+typedef struct {
+    // Input fields
+    FILE *fp;
+    const uint8_t *data;
+    size_t size;
+    size_t index;
+    
+    // Output fields
+    uint8_t *output;
+    int width;
+    int height;
+} tjpgd_ctx_t;
+
+// Input callback
+static size_t tjpgd_input_func(JDEC *jd, uint8_t *buff, size_t ndata) {
+    tjpgd_ctx_t *ctx = (tjpgd_ctx_t *)jd->device;
+    if (buff) {
+        // Read data
+        if (ctx->fp) {
+            return fread(buff, 1, ndata, ctx->fp);
+        } else {
+            size_t to_read = ndata;
+            if (ctx->index + to_read > ctx->size) {
+                to_read = ctx->size - ctx->index;
+            }
+            memcpy(buff, ctx->data + ctx->index, to_read);
+            ctx->index += to_read;
+            return to_read;
+        }
+    } else {
+        // Skip data
+        if (ctx->fp) {
+            return fseek(ctx->fp, ndata, SEEK_CUR) == 0 ? ndata : 0;
+        } else {
+            size_t to_skip = ndata;
+            if (ctx->index + to_skip > ctx->size) {
+                to_skip = ctx->size - ctx->index;
+            }
+            ctx->index += to_skip;
+            return to_skip;
+        }
+    }
+}
+
+// Output callback
+static int tjpgd_output_func(JDEC *jd, void *bitmap, JRECT *rect) {
+    tjpgd_ctx_t *ctx = (tjpgd_ctx_t *)jd->device;
+    uint8_t *src = (uint8_t *)bitmap;
+    
+    // Copy block to output buffer
+    // JD_FORMAT=2 means 1 byte per pixel
+    int w = rect->right - rect->left + 1;
+    int h = rect->bottom - rect->top + 1;
+    
+    for (int y = 0; y < h; y++) {
+        int dst_idx = (rect->top + y) * ctx->width + rect->left;
+        if (dst_idx + w <= ctx->width * ctx->height) {
+            memcpy(ctx->output + dst_idx, src + y * w, w);
+        }
+    }
+    
+    return 1; // Continue
+}
+
 esp_err_t img_process_file(const char *filename,
                            uint8_t *output, size_t output_size,
                            const img_process_opts_t *opts)
@@ -604,6 +670,95 @@ esp_err_t img_process_file(const char *filename,
     }
 
     ESP_LOGI(TAG, "File Image info: %dx%d, %d comp", w, h, comp);
+
+    // Check if it's a JPEG and large
+    bool use_tjpgd = false;
+    if (strcasecmp(ext, ".jpg") == 0 || strcasecmp(ext, ".jpeg") == 0) {
+        size_t required_mem = w * h * 1;
+        size_t free_mem = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+        if (required_mem + 512000 > free_mem) {
+            use_tjpgd = true;
+        }
+    }
+
+    if (use_tjpgd) {
+        ESP_LOGI(TAG, "Using TJpgDec for large JPEG");
+        
+        // Determine scale factor
+        uint8_t scale = 0;
+        int sw = w, sh = h;
+        while (scale < 3) {
+            if ((sw >> 1) < opts->target_width && (sh >> 1) < opts->target_height) {
+                break;
+            }
+            sw >>= 1;
+            sh >>= 1;
+            scale++;
+        }
+        
+        ESP_LOGI(TAG, "Scaling by 1/%d -> %dx%d", 1 << scale, sw, sh);
+        
+        // Allocate buffer for scaled image
+        size_t buf_size = sw * sh;
+        uint8_t *gray = heap_caps_malloc(buf_size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (!gray) {
+            ESP_LOGE(TAG, "Failed to allocate %d bytes for scaled image", buf_size);
+            return ESP_ERR_NO_MEM;
+        }
+        
+        // Prepare tjpgd
+        JDEC jd;
+        char *work = malloc(TJPGD_WORKSPACE_SIZE);
+        if (!work) {
+            free(gray);
+            return ESP_ERR_NO_MEM;
+        }
+        
+        tjpgd_ctx_t ctx = {0};
+        ctx.fp = fopen(filename, "rb");
+        if (!ctx.fp) {
+            free(gray);
+            free(work);
+            return ESP_ERR_NOT_FOUND;
+        }
+        ctx.output = gray;
+        ctx.width = sw;
+        ctx.height = sh;
+        
+        JRESULT res = jd_prepare(&jd, tjpgd_input_func, work, TJPGD_WORKSPACE_SIZE, &ctx);
+        if (res == JDR_OK) {
+            res = jd_decomp(&jd, tjpgd_output_func, scale);
+        }
+        
+        fclose(ctx.fp);
+        free(work);
+        
+        if (res != JDR_OK) {
+            ESP_LOGE(TAG, "TJpgDec failed: %d", res);
+            free(gray);
+            return ESP_FAIL;
+        }
+        
+        // Now scale to final size
+        uint8_t *final_gray = NULL;
+        if (sw != opts->target_width || sh != opts->target_height) {
+            final_gray = heap_caps_malloc(opts->target_width * opts->target_height, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+            if (!final_gray) {
+                free(gray);
+                return ESP_ERR_NO_MEM;
+            }
+            img_scale_gray(gray, sw, sh, final_gray, opts->target_width, opts->target_height, opts->fit_mode);
+            free(gray);
+            gray = final_gray;
+        }
+        
+        // Convert to 1bpp
+        img_gray_to_1bpp(gray, opts->target_width, opts->target_height, output, opts);
+        free(gray);
+        
+        ESP_LOGI(TAG, "Large JPEG processed successfully");
+        return ESP_OK;
+    }
 
     // Calculate required memory for grayscale (1 byte per pixel)
     size_t required_mem = w * h * 1;
