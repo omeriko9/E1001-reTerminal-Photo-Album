@@ -74,8 +74,13 @@ static void wifi_callback(wifi_mgr_status_t status, void *ctx) {
         case WIFI_MGR_STATUS_CONNECTED:
             ESP_LOGI(TAG, "Connected to WiFi - starting web server and time sync");
             webserver_start();
-            overlay_sync_time();
+            // overlay_sync_time();
             reset_wifi_timer();
+            
+            // Show IP address on screen
+            wifi_mgr_info_t info;
+            wifi_mgr_get_info(&info);
+            carousel_show_connected_ip(info.ip_addr);
             break;
             
         case WIFI_MGR_STATUS_OFF:

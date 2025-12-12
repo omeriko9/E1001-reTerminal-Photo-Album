@@ -17,6 +17,7 @@
 #include "freertos/semphr.h"
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "esp_random.h"
 
 static const char *TAG = "carousel";
 
@@ -29,6 +30,8 @@ static SemaphoreHandle_t s_mutex = NULL;
 static bool s_running = false;
 static bool s_refresh_pending = false;
 static int s_show_index = -1;  // -1 = auto, >= 0 = specific index
+static char s_startup_ip[32] = {0};
+static bool s_show_startup_ip = false;
 
 esp_err_t carousel_init(void) {
     s_mutex = xSemaphoreCreateMutex();
@@ -53,46 +56,51 @@ static void display_image(int index) {
     
     ESP_LOGI(TAG, "Displaying image %d: %s", index, info.filename);
     
-    // Load image from SD card
-    uint8_t *raw_data = NULL;
-    size_t raw_size = 0;
-    
-    if (storage_load_image(info.filename, &raw_data, &raw_size) != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to load image");
-        return;
-    }
-    
     // Get/create framebuffer
     uint8_t *fb = epd_get_framebuffer();
     if (!fb) {
-        free(raw_data);
         return;
     }
     
-    // Process image if needed
-    const char *format = img_detect_format(raw_data, raw_size);
-    
-    if (strcmp(format, "raw") == 0 || strcmp(format, "bin") == 0) {
-        // Already in e-ink format
-        if (raw_size == EPAPER_BUFFER_SIZE) {
-            memcpy(fb, raw_data, EPAPER_BUFFER_SIZE);
-        } else {
-            ESP_LOGW(TAG, "Raw image size mismatch: %d vs %d", raw_size, EPAPER_BUFFER_SIZE);
-            memset(fb, 0xFF, EPAPER_BUFFER_SIZE);
+    // Check extension to decide how to process
+    const char *ext = strrchr(info.filename, '.');
+    bool is_raw = false;
+    if (ext) {
+        if (strcasecmp(ext, ".raw") == 0 || strcasecmp(ext, ".bin") == 0) {
+            is_raw = true;
+        }
+    }
+
+    if (is_raw) {
+        // For raw files, we still load them to memory first as they are small (48KB)
+        uint8_t *raw_data = NULL;
+        size_t raw_size = 0;
+        if (storage_load_image(info.filename, &raw_data, &raw_size) == ESP_OK) {
+            if (raw_size == EPAPER_BUFFER_SIZE) {
+                memcpy(fb, raw_data, EPAPER_BUFFER_SIZE);
+            } else {
+                ESP_LOGW(TAG, "Raw image size mismatch: %d vs %d", raw_size, EPAPER_BUFFER_SIZE);
+                memset(fb, 0xFF, EPAPER_BUFFER_SIZE);
+            }
+            free(raw_data);
         }
     } else {
-        // Convert image
+        // For other images (JPG, PNG, BMP), stream from file to save memory
         img_process_opts_t opts;
         img_get_default_opts(&opts);
+        opts.fit_mode = s_settings.fit_mode;
         
-        if (img_process(raw_data, raw_size, fb, EPAPER_BUFFER_SIZE, &opts) != ESP_OK) {
+        // Construct full path
+        char full_path[128];
+        snprintf(full_path, sizeof(full_path), "%s/%s", IMAGES_DIR, info.filename);
+        
+        if (img_process_file(full_path, fb, EPAPER_BUFFER_SIZE, &opts) != ESP_OK) {
             ESP_LOGE(TAG, "Image processing failed");
             memset(fb, 0xFF, EPAPER_BUFFER_SIZE);
         }
     }
     
-    free(raw_data);
-    
+    /*
     // Draw overlays
     overlay_config_t overlay_cfg;
     overlay_get_default_config(&overlay_cfg);
@@ -108,6 +116,7 @@ static void display_image(int index) {
                  power_get_battery_percent(),
                  -999,  // No temperature sensor on board
                  wifi_info.status == WIFI_MGR_STATUS_CONNECTED);
+    */
     
     // Display on e-paper
     s_state = CAROUSEL_STATE_DISPLAYING;
@@ -155,6 +164,27 @@ static void display_no_images(void) {
     epd_display(fb, EPD_UPDATE_FULL);
 }
 
+static void display_connect_screen(const char *ip) {
+    uint8_t *fb = epd_get_framebuffer();
+    if (!fb) return;
+    
+    // Clear to white
+    memset(fb, 0xFF, EPAPER_BUFFER_SIZE);
+    
+    const char *msg1 = "To upload images, connect:";
+    char msg2[64];
+    snprintf(msg2, sizeof(msg2), "http://%s", ip);
+    
+    int x1 = (EPAPER_WIDTH - epd_get_text_width(msg1, 3)) / 2;
+    int x2 = (EPAPER_WIDTH - epd_get_text_width(msg2, 3)) / 2;
+    int y = EPAPER_HEIGHT / 2 - 30;
+    
+    epd_draw_text(x1, y, msg1, 3, 0);
+    epd_draw_text(x2, y + 50, msg2, 3, 0);
+    
+    epd_display(fb, EPD_UPDATE_FULL);
+}
+
 void carousel_task(void *arg) {
     ESP_LOGI(TAG, "Carousel task started");
     
@@ -163,6 +193,22 @@ void carousel_task(void *arg) {
     while (s_running) {
         xSemaphoreTake(s_mutex, portMAX_DELAY);
         
+        // Check if startup IP needs to be shown
+        if (s_show_startup_ip) {
+            s_show_startup_ip = false;
+            char ip[32];
+            strncpy(ip, s_startup_ip, sizeof(ip));
+            xSemaphoreGive(s_mutex);
+            
+            ESP_LOGI(TAG, "Displaying connect info for %s", ip);
+            display_connect_screen(ip);
+            vTaskDelay(pdMS_TO_TICKS(5000));
+            
+            // Reset timer to delay next image
+            last_display = xTaskGetTickCount();
+            continue;
+        }
+
         int image_count = storage_get_image_count();
         bool need_display = false;
         int target_index = s_current_index;
@@ -186,7 +232,11 @@ void carousel_task(void *arg) {
         
         if (!need_display && (now - last_display) >= interval_ticks) {
             need_display = true;
-            target_index = (s_current_index + 1) % (image_count > 0 ? image_count : 1);
+            if (s_settings.random_order) {
+                target_index = esp_random() % (image_count > 0 ? image_count : 1);
+            } else {
+                target_index = (s_current_index + 1) % (image_count > 0 ? image_count : 1);
+            }
         }
         
         xSemaphoreGive(s_mutex);
@@ -220,7 +270,8 @@ void carousel_start(void) {
     if (s_running) return;
     
     s_running = true;
-    xTaskCreate(carousel_task, "carousel", 8192, NULL, 5, &s_task_handle);
+    // Increased stack size to 24KB to handle large image decoding (stb_image)
+    xTaskCreate(carousel_task, "carousel", 24576, NULL, 5, &s_task_handle);
     ESP_LOGI(TAG, "Carousel started");
 }
 
@@ -257,6 +308,15 @@ void carousel_show_index(int index) {
 void carousel_refresh(void) {
     xSemaphoreTake(s_mutex, portMAX_DELAY);
     s_refresh_pending = true;
+    xSemaphoreGive(s_mutex);
+}
+
+void carousel_show_connected_ip(const char *ip_addr) {
+    xSemaphoreTake(s_mutex, portMAX_DELAY);
+    strncpy(s_startup_ip, ip_addr, sizeof(s_startup_ip) - 1);
+    s_show_startup_ip = true;
+    // Force task wake up if sleeping
+    s_refresh_pending = true; 
     xSemaphoreGive(s_mutex);
 }
 

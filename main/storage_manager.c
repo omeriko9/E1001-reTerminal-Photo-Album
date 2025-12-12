@@ -371,6 +371,30 @@ esp_err_t storage_delete_image(const char *filename) {
     return ESP_OK;
 }
 
+esp_err_t storage_delete_all_images(void) {
+    if (!s_sd_mounted) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    DIR *d = opendir(IMAGES_DIR);
+    if (!d) {
+        ESP_LOGE(TAG, "Cannot open images directory");
+        return ESP_FAIL;
+    }
+
+    struct dirent *e;
+    while ((e = readdir(d))) {
+        if (e->d_type == DT_REG) {
+            char path[PATH_MAX_LEN];
+            snprintf(path, sizeof(path), "%s/%s", IMAGES_DIR, e->d_name);
+            unlink(path);
+            ESP_LOGI(TAG, "Deleted %s", e->d_name);
+        }
+    }
+    closedir(d);
+    return ESP_OK;
+}
+
 void storage_reset_settings(app_settings_t *settings) {
     memset(settings, 0, sizeof(app_settings_t));
     
@@ -386,6 +410,7 @@ void storage_reset_settings(app_settings_t *settings) {
     strncpy(settings->ap_ssid, DEFAULT_AP_SSID, sizeof(settings->ap_ssid));
     strncpy(settings->ap_password, DEFAULT_AP_PASS, sizeof(settings->ap_password));
     settings->provisioned = false;
+    settings->fit_mode = false;
 }
 
 esp_err_t storage_load_settings(app_settings_t *settings) {

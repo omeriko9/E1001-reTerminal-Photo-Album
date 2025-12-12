@@ -11,6 +11,7 @@
 // Maximum images supported
 #define MAX_IMAGES 100
 #define MAX_FILENAME_LEN 64
+#define IMAGES_DIR "/sdcard/images"
 
 // Image info structure
 typedef struct {
@@ -35,6 +36,8 @@ typedef struct {
     char ap_ssid[33];                   // AP SSID
     char ap_password[65];               // AP password
     bool provisioned;                   // WiFi has been configured
+    bool random_order;                  // Random image order
+    bool fit_mode;                      // Fit image to screen (keep margins)
 } app_settings_t;
 
 /**
@@ -108,6 +111,12 @@ esp_err_t storage_save_image(const char *filename, const uint8_t *data, size_t s
  * @return ESP_OK on success
  */
 esp_err_t storage_delete_image(const char *filename);
+
+/**
+ * @brief Delete all images from SD card
+ * @return ESP_OK on success
+ */
+esp_err_t storage_delete_all_images(void);
 
 /**
  * @brief Load application settings from NVS

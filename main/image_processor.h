@@ -61,6 +61,18 @@ esp_err_t img_process(const uint8_t *input, size_t input_size,
                       const img_process_opts_t *opts);
 
 /**
+ * @brief Process image file for e-ink display (streaming from file)
+ * @param filename Full path to image file
+ * @param output Output buffer for e-ink format
+ * @param output_size Size of output buffer
+ * @param opts Processing options
+ * @return ESP_OK on success
+ */
+esp_err_t img_process_file(const char *filename,
+                           uint8_t *output, size_t output_size,
+                           const img_process_opts_t *opts);
+
+/**
  * @brief Decode BMP file to raw RGB
  * @param input BMP data
  * @param input_size BMP data size
@@ -91,9 +103,10 @@ void img_rgb_to_1bpp(const uint8_t *rgb, uint16_t width, uint16_t height,
  * @param output Output RGB buffer
  * @param out_w Output width
  * @param out_h Output height
+ * @param fit If true, fit image within output (keep margins). If false, cover output (zoom in).
  */
 void img_scale(const uint8_t *input, uint16_t in_w, uint16_t in_h,
-               uint8_t *output, uint16_t out_w, uint16_t out_h);
+               uint8_t *output, uint16_t out_w, uint16_t out_h, bool fit);
 
 /**
  * @brief Check if raw buffer is valid e-ink format

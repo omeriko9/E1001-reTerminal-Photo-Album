@@ -76,6 +76,12 @@ int carousel_get_current_index(void);
 void carousel_handle_button(int button);
 
 /**
+ * @brief Show connected IP screen for 5 seconds
+ * @param ip_addr IP address string
+ */
+void carousel_show_connected_ip(const char *ip_addr);
+
+/**
  * @brief Main carousel task (internal use)
  */
 void carousel_task(void *arg);
