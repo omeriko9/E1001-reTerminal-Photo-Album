@@ -23,6 +23,7 @@
 #include "nvs_flash.h"
 #include "driver/gpio.h"
 #include "driver/spi_master.h"
+#include "driver/i2c.h"
 
 #include "board_config.h"
 #include "wifi_manager.h"
@@ -32,6 +33,7 @@
 #include "power_manager.h"
 #include "carousel.h"
 #include "display_overlay.h"
+#include "sht40.h"
 
 static const char *TAG = "main";
 
@@ -74,7 +76,7 @@ static void wifi_callback(wifi_mgr_status_t status, void *ctx) {
         case WIFI_MGR_STATUS_CONNECTED:
             ESP_LOGI(TAG, "Connected to WiFi - starting web server and time sync");
             webserver_start();
-            // overlay_sync_time();
+            overlay_sync_time();
             reset_wifi_timer();
             
             // Show IP address on screen
@@ -229,6 +231,21 @@ void app_main(void) {
     };
     ESP_ERROR_CHECK(spi_bus_initialize(SPI_HOST_USED, &buscfg, SPI_DMA_CHAN));
     
+    // Initialize I2C Bus
+    i2c_config_t i2c_conf = {
+        .mode = I2C_MODE_MASTER,
+        .sda_io_num = PIN_I2C0_SDA,
+        .scl_io_num = PIN_I2C0_SCL,
+        .sda_pullup_en = GPIO_PULLUP_ENABLE,
+        .scl_pullup_en = GPIO_PULLUP_ENABLE,
+        .master.clk_speed = I2C0_FREQ_HZ,
+    };
+    ESP_ERROR_CHECK(i2c_param_config(I2C_NUM_0, &i2c_conf));
+    ESP_ERROR_CHECK(i2c_driver_install(I2C_NUM_0, I2C_MODE_MASTER, 0, 0, 0));
+
+    // Initialize SHT40
+    sht40_init();
+
     // Initialize storage (NVS and SD card)
     ESP_ERROR_CHECK(storage_init());
     

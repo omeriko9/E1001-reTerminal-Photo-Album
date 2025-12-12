@@ -10,6 +10,7 @@
 #include "display_overlay.h"
 #include "power_manager.h"
 #include "wifi_manager.h"
+#include "sht40.h"
 
 #include <string.h>
 #include "freertos/FreeRTOS.h"
@@ -112,9 +113,12 @@ static void display_image(int index) {
     wifi_mgr_info_t wifi_info;
     wifi_mgr_get_info(&wifi_info);
     
+    float temp = -999;
+    sht40_read_temp_humid(&temp, NULL);
+
     overlay_draw(fb, &overlay_cfg, 
                  power_get_battery_percent(),
-                 -999,  // No temperature sensor on board
+                 temp,
                  wifi_info.status == WIFI_MGR_STATUS_CONNECTED);
     
     
