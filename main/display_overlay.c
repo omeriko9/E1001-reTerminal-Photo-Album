@@ -15,10 +15,10 @@ static const char *TAG = "overlay";
 
 void overlay_get_default_config(overlay_config_t *config)
 {
-    config->show_datetime = true;
-    config->show_temperature = true;
-    config->show_battery = true;
-    config->show_wifi = true;
+    config->show_datetime = false;
+    config->show_temperature = false;
+    config->show_battery = false;
+    config->show_wifi = false;
     config->timezone_offset = 0;
     config->font_size = 1;
     config->datetime_color = 0; // Black on white background

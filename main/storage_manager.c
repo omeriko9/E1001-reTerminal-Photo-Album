@@ -408,10 +408,10 @@ void storage_reset_settings(app_settings_t *settings) {
     settings->carousel_interval_sec = DEFAULT_CAROUSEL_INTERVAL_SEC;
     settings->wifi_timeout_sec = DEFAULT_WIFI_TIMEOUT_SEC;
     settings->deep_sleep_sec = DEFAULT_DEEP_SLEEP_SEC;
-    settings->show_datetime = true;
-    settings->show_temperature = true;
-    settings->show_battery = true;
-    settings->show_wifi = true;
+    settings->show_datetime = false;
+    settings->show_temperature = false;
+    settings->show_battery = false;
+    settings->show_wifi = false;
     settings->timezone_offset = 0;
     settings->auto_brightness = false;
     settings->current_image_index = 0;
