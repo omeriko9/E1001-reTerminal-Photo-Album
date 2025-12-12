@@ -161,6 +161,7 @@ static const char HTML_DASHBOARD_BODY[] =
     "<div class='btn-group'>"
     "<button type='submit'>💾 Save Settings</button>"
     "<button type='button' onclick='location.href=\"/wifi\"' class='secondary'>📶 Configure WiFi</button>"
+    "<button type='button' onclick='restartDevice()' class='secondary'>🔄 Restart Device</button>"
     "<button type='button' onclick='factoryReset()' class='danger'>🗑️ Factory Reset</button>"
     "</div>"
     "</form></div>"
@@ -284,6 +285,12 @@ static const char HTML_SCRIPT[] =
     "async function displayNext(){"
     "await fetchJSON(API+'/display/next',{method:'POST'});"
     "showToast('Displaying next image...')}"
+
+    "async function restartDevice(){"
+    "if(!confirm('Restart device?'))return;"
+    "await fetchJSON(API+'/restart',{method:'POST'});"
+    "showToast('Restarting...');"
+    "setTimeout(()=>location.reload(),5000)}"
 
     "async function factoryReset(){"
     "if(!confirm('Reset all settings?'))return;"
@@ -881,6 +888,28 @@ static esp_err_t handle_display(httpd_req_t *req)
     return ESP_OK;
 }
 
+static void restart_task(void *arg) {
+    vTaskDelay(pdMS_TO_TICKS(1000));
+    esp_restart();
+    vTaskDelete(NULL);
+}
+
+static esp_err_t handle_restart(httpd_req_t *req)
+{
+    cJSON *root = cJSON_CreateObject();
+    cJSON_AddBoolToObject(root, "success", true);
+
+    char *json = cJSON_PrintUnformatted(root);
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, json);
+
+    free(json);
+    cJSON_Delete(root);
+
+    xTaskCreate(restart_task, "restart_task", 2048, NULL, 5, NULL);
+    return ESP_OK;
+}
+
 static esp_err_t handle_reset(httpd_req_t *req)
 {
     app_settings_t settings;
@@ -1000,6 +1029,7 @@ esp_err_t webserver_start(void) {
     httpd_uri_t wifi_connect = { .uri = "/api/wifi/connect", .method = HTTP_POST, .handler = handle_wifi_connect };
     httpd_uri_t wifi_scan = { .uri = "/api/wifi/scan", .method = HTTP_GET, .handler = handle_wifi_scan };
     httpd_uri_t display = { .uri = "/api/display/*", .method = HTTP_POST, .handler = handle_display };
+    httpd_uri_t restart = { .uri = "/api/restart", .method = HTTP_POST, .handler = handle_restart };
     httpd_uri_t reset = { .uri = "/api/reset", .method = HTTP_POST, .handler = handle_reset };
     httpd_uri_t get_file = { .uri = "/api/files/*", .method = HTTP_GET, .handler = handle_get_file };
     
@@ -1015,6 +1045,7 @@ esp_err_t webserver_start(void) {
     httpd_register_uri_handler(s_server, &wifi_connect);
     httpd_register_uri_handler(s_server, &wifi_scan);
     httpd_register_uri_handler(s_server, &display);
+    httpd_register_uri_handler(s_server, &restart);
     httpd_register_uri_handler(s_server, &reset);
     httpd_register_uri_handler(s_server, &get_file);
     
