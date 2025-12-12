@@ -27,6 +27,7 @@ idf_component_register(
         spi_flash
         esp_psram
         json
+        spiffs
 )
 
 # Embed web files
