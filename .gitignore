@@ -1,0 +1,51 @@
+# ESP-IDF build artifacts
+build/
+
+# SDK configuration backups
+sdkconfig.old
+
+example_code/
+
+# IDE files
+.vscode/
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.swp
+*.bak
+
+# Logs
+*.log
+log/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+
+# Ninja
+.ninja_deps
+.ninja_log
+
+# Other build files
+compile_commands.json
+
+# Partition table binaries
+partition_table/*.bin
+
+# SPIFFS binaries
+spiffs/*.bin
