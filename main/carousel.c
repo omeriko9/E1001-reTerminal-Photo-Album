@@ -100,7 +100,7 @@ static void display_image(int index) {
         }
     }
     
-    /*
+    
     // Draw overlays
     overlay_config_t overlay_cfg;
     overlay_get_default_config(&overlay_cfg);
@@ -116,7 +116,7 @@ static void display_image(int index) {
                  power_get_battery_percent(),
                  -999,  // No temperature sensor on board
                  wifi_info.status == WIFI_MGR_STATUS_CONNECTED);
-    */
+    
     
     // Display on e-paper
     s_state = CAROUSEL_STATE_DISPLAYING;
