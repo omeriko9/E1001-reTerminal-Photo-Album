@@ -277,7 +277,7 @@ void app_main(void) {
         case WAKE_REASON_BUTTON_K0:
             // WiFi button pressed - start WiFi
             ESP_LOGI(TAG, "WiFi button wake - starting WiFi");
-            power_buzzer_beep(1000, 200);
+            power_buzzer_chord();
             
             if (wifi_mgr_has_credentials()) {
                 if (wifi_mgr_start_sta() != ESP_OK) {
@@ -291,14 +291,14 @@ void app_main(void) {
         case WAKE_REASON_BUTTON_K1:
             // Next image button
             ESP_LOGI(TAG, "Next button wake");
-            power_buzzer_beep(2000, 100);
+            power_buzzer_beep(2000, 50);
             carousel_next();
             break;
             
         case WAKE_REASON_BUTTON_K2:
             // Previous image button
             ESP_LOGI(TAG, "Prev button wake");
-            power_buzzer_beep(2000, 100);
+            power_buzzer_beep(2000, 50);
             carousel_prev();
             break;
             
@@ -312,9 +312,7 @@ void app_main(void) {
         default:
             // Fresh boot - show startup screen and start AP if not provisioned
             ESP_LOGI(TAG, "Fresh boot");
-            power_buzzer_beep(500, 100);
-            vTaskDelay(pdMS_TO_TICKS(100));
-            power_buzzer_beep(1000, 100);
+            power_buzzer_chord();
             
             display_startup_screen();
             vTaskDelay(pdMS_TO_TICKS(2000));

@@ -90,3 +90,8 @@ bool power_was_deep_sleep(void);
  * @param duration Duration in ms
  */
 void power_buzzer_beep(uint32_t frequency, uint32_t duration);
+
+/**
+ * @brief Play a pleasant chord
+ */
+void power_buzzer_chord(void);

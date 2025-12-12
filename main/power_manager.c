@@ -275,11 +275,22 @@ void power_buzzer_beep(uint32_t frequency, uint32_t duration) {
     }
     
     ledc_set_freq(BUZZER_LEDC_MODE, BUZZER_LEDC_TIMER, frequency);
-    ledc_set_duty(BUZZER_LEDC_MODE, BUZZER_LEDC_CHANNEL, 512);  // 50% duty
+    // Lower volume by reducing duty cycle (e.g. 10% instead of 50%)
+    // 1024 is max resolution (10 bit), so 512 was 50%. Let's try 50 (~5%)
+    ledc_set_duty(BUZZER_LEDC_MODE, BUZZER_LEDC_CHANNEL, 50);
     ledc_update_duty(BUZZER_LEDC_MODE, BUZZER_LEDC_CHANNEL);
     
     vTaskDelay(pdMS_TO_TICKS(duration));
     
     ledc_set_duty(BUZZER_LEDC_MODE, BUZZER_LEDC_CHANNEL, 0);
     ledc_update_duty(BUZZER_LEDC_MODE, BUZZER_LEDC_CHANNEL);
+}
+
+void power_buzzer_chord(void) {
+    // Major chord going up (C5, E5, G5)
+    power_buzzer_beep(523, 100);
+    vTaskDelay(pdMS_TO_TICKS(50));
+    power_buzzer_beep(659, 100);
+    vTaskDelay(pdMS_TO_TICKS(50));
+    power_buzzer_beep(784, 150);
 }

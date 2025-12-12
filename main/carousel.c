@@ -344,7 +344,7 @@ void carousel_handle_button(int button) {
     switch (button) {
         case 0:  // K0 - WiFi toggle
             wifi_mgr_toggle();
-            power_buzzer_beep(1000, 100);
+            power_buzzer_chord();
             break;
             
         case 1:  // K1 - Next image

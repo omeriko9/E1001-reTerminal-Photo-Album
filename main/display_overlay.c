@@ -226,6 +226,10 @@ esp_err_t overlay_sync_time(void)
 {
     ESP_LOGI(TAG, "Starting SNTP sync...");
 
+    if (esp_sntp_enabled()) {
+        esp_sntp_stop();
+    }
+
     esp_sntp_setoperatingmode(SNTP_OPMODE_POLL);
     esp_sntp_setservername(0, "pool.ntp.org");
     esp_sntp_setservername(1, "time.google.com");
