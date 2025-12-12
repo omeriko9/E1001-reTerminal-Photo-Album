@@ -10,6 +10,7 @@ idf_component_register(
         "image_processor.c"
         "carousel.c"
         "display_overlay.c"
+        "sht40.c"
     INCLUDE_DIRS 
         "."
     REQUIRES 
