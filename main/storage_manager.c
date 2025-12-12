@@ -165,6 +165,7 @@ int storage_get_images(image_info_t *images, int max_count) {
             strcasecmp(ext, ".raw") != 0 &&
             strcasecmp(ext, ".bmp") != 0 &&
             strcasecmp(ext, ".jpg") != 0 &&
+            strcasecmp(ext, ".jpeg") != 0 &&
             strcasecmp(ext, ".png") != 0) {
             continue;
         }
@@ -214,6 +215,7 @@ int storage_get_image_count(void) {
             strcasecmp(ext, ".raw") == 0 ||
             strcasecmp(ext, ".bmp") == 0 ||
             strcasecmp(ext, ".jpg") == 0 ||
+            strcasecmp(ext, ".jpeg") == 0 ||
             strcasecmp(ext, ".png") == 0) {
             count++;
         }
@@ -248,6 +250,7 @@ esp_err_t storage_get_image_by_index(int index, image_info_t *info) {
             strcasecmp(ext, ".raw") != 0 &&
             strcasecmp(ext, ".bmp") != 0 &&
             strcasecmp(ext, ".jpg") != 0 &&
+            strcasecmp(ext, ".jpeg") != 0 &&
             strcasecmp(ext, ".png") != 0) {
             continue;
         }

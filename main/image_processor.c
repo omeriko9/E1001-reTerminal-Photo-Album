@@ -7,9 +7,20 @@
 
 #include <string.h>
 #include <stdlib.h>
+#include <assert.h>
 #include <math.h>
 #include "esp_log.h"
 #include "esp_heap_caps.h"
+
+#define STBI_NO_STDIO
+#define STBI_ONLY_JPEG
+#define STBI_ONLY_PNG
+#define STBI_MALLOC(sz) heap_caps_malloc((sz), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)
+#define STBI_REALLOC(p,sz) heap_caps_realloc((p), (sz), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)
+#define STBI_FREE(p) free(p)
+#define STBI_ASSERT(x) assert(x)
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
 
 static const char *TAG = "img_proc";
 
@@ -266,6 +277,15 @@ void img_rgb_to_1bpp(const uint8_t *rgb, uint16_t width, uint16_t height,
     free(gray);
 }
 
+static void free_image_buffer(uint8_t *buf, bool from_stbi) {
+    if (!buf) return;
+    if (from_stbi) {
+        stbi_image_free(buf);
+    } else {
+        free(buf);
+    }
+}
+
 esp_err_t img_process(const uint8_t *input, size_t input_size,
                       uint8_t *output, size_t output_size,
                       const img_process_opts_t *opts) {
@@ -283,16 +303,36 @@ esp_err_t img_process(const uint8_t *input, size_t input_size,
     }
     
     uint8_t *rgb = NULL;
-    uint16_t width, height;
-    esp_err_t ret;
+    uint16_t width = 0;
+    uint16_t height = 0;
+    bool rgb_from_stbi = false;
+    esp_err_t ret = ESP_OK;
     
     if (strcmp(format, "bmp") == 0) {
         ret = img_decode_bmp(input, input_size, &rgb, &width, &height);
         if (ret != ESP_OK) {
             return ret;
         }
+    } else if (strcmp(format, "jpg") == 0 || strcmp(format, "png") == 0) {
+        int w = 0, h = 0, comp = 0;
+        stbi_uc *decoded = stbi_load_from_memory(input, (int)input_size,
+                                                 &w, &h, &comp, 3);
+        if (!decoded) {
+            ESP_LOGE(TAG, "Decode failed for %s: %s", format, stbi_failure_reason());
+            return ESP_ERR_NOT_SUPPORTED;
+        }
+        if (w <= 0 || h <= 0 || w > UINT16_MAX || h > UINT16_MAX) {
+            ESP_LOGE(TAG, "Image dimensions unsupported: %dx%d", w, h);
+            stbi_image_free(decoded);
+            return ESP_ERR_INVALID_SIZE;
+        }
+        
+        rgb = decoded;
+        width = (uint16_t)w;
+        height = (uint16_t)h;
+        rgb_from_stbi = true;
     } else {
-        ESP_LOGE(TAG, "Unsupported format: %s (only BMP and raw supported)", format);
+        ESP_LOGE(TAG, "Unsupported format: %s (BMP, JPG, PNG, raw supported)", format);
         return ESP_ERR_NOT_SUPPORTED;
     }
     
@@ -305,13 +345,14 @@ esp_err_t img_process(const uint8_t *input, size_t input_size,
             scaled = malloc(scaled_size);
         }
         if (!scaled) {
-            free(rgb);
+            free_image_buffer(rgb, rgb_from_stbi);
             return ESP_ERR_NO_MEM;
         }
         
         img_scale(rgb, width, height, scaled, opts->target_width, opts->target_height);
-        free(rgb);
+        free_image_buffer(rgb, rgb_from_stbi);
         rgb = scaled;
+        rgb_from_stbi = false;  // scaled buffer uses malloc path in this file
         width = opts->target_width;
         height = opts->target_height;
     }
@@ -319,7 +360,7 @@ esp_err_t img_process(const uint8_t *input, size_t input_size,
     // Convert to 1-bit
     img_rgb_to_1bpp(rgb, width, height, output, opts);
     
-    free(rgb);
+    free_image_buffer(rgb, rgb_from_stbi);
     
     ESP_LOGI(TAG, "Image processed successfully");
     return ESP_OK;
