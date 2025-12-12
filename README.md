@@ -1,5 +1,8 @@
 # E1001 ESP32-S3 E-Paper Photo Frame
 
+<img width="806" height="895" alt="image" src="https://github.com/user-attachments/assets/b2844cf3-1e10-4560-afbc-d59a9087e090" />
+
+
 A complete firmware project for the reTerminal E1001 (ESP32-S3 based device) featuring WiFi provisioning, web-based image management, and automatic carousel display on an 800x480 e-ink display.
 
 ## Features
