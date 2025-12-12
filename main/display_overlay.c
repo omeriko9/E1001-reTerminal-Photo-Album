@@ -157,7 +157,7 @@ void overlay_draw(uint8_t *fb, const overlay_config_t *config,
     // Draw temperature
     if (config->show_temperature) {
         char buf[16];
-        ESP_LOG(TAG, "The temperature value is invalid: %.2f", temp_celsius);
+        ESP_LOGI(TAG, "The temperature value is: %.2f", temp_celsius);
         if (temp_celsius < -100) {
             
             snprintf(buf, sizeof(buf), "--C");
