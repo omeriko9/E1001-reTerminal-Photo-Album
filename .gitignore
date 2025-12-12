@@ -5,6 +5,7 @@ build/
 sdkconfig.old
 
 example_code/
+sample_photos/
 
 # IDE files
 .vscode/
