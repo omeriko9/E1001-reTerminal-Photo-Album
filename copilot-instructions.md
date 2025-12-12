@@ -8,7 +8,7 @@ This is a complete ESP-IDF v5.5 firmware project for the reTerminal E1001 (ESP32
 - **E-ink Display**: 800x480 UC8179-compatible display with carousel functionality
 - **Image Management**: WebUI for uploading/deleting images, BMP/PNG/JPG support with dithering
 - **Power Management**: Deep sleep between images, battery monitoring, buzzer feedback
-- **Display Overlays**: Date/time, temperature, battery status overlays
+- **Display Overlays**: Date/time, temperature, battery status overlays (currently disabled)
 - **Button Controls**: K0 (WiFi toggle), K1 (Next), K2 (Previous)
 - **Storage**: SD card for images, NVS for settings
 
@@ -24,7 +24,7 @@ This is a complete ESP-IDF v5.5 firmware project for the reTerminal E1001 (ESP32
 
 ## Software Requirements
 
-- **ESP-IDF v5.5**: Install from https://docs.espressif.com/projects/esp-idf/en/v5.5/esp32s3/get-started/index.html
+- **ESP-IDF v5.5**: Install VSCode extension or Install from https://docs.espressif.com/projects/esp-idf/en/v5.5/esp32s3/get-started/index.html
 - **Python 3.8+**: For build tools
 - **Git**: For cloning repositories
 
@@ -158,12 +158,12 @@ Contains all GPIO pin mappings for the E1001:
 
 1. **Connect Device**: Ensure E1001 is connected via USB (COM14)
 
-2. **Flash**:
+2. **Flash**  (replace COM14 with your port):
    ```bash
    idf.py -p COM14 flash
    ```
 
-3. **Monitor** (optional):
+3. **Monitor** (replace COM14 with your port):
    ```bash
    idf.py -p COM14 monitor
    ```
@@ -173,9 +173,9 @@ Contains all GPIO pin mappings for the E1001:
 ### Initial Setup
 1. Power on device - enters AP mode ("E1001-Setup")
 2. Connect phone/laptop to WiFi network
-3. Open browser to `http://192.168.4.1`
+3. A captive portal will open 
 4. Configure WiFi credentials
-5. Upload images via web interface
+5. Upload images via web interface at the IP displayed on the device screen
 
 ### Normal Operation
 - Device displays images in carousel mode

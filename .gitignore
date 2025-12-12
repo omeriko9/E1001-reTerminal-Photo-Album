@@ -53,3 +53,7 @@ build_app_output.txt
 .gitignore
 build_output.txt
 build_log.txt
+sample_photos/cute_dog.png
+.gitignore
+sample_photos/living_room.png
+sample_photos/scenery.png

@@ -18,12 +18,16 @@
 #include "driver/gpio.h"
 #include "nvs_flash.h"
 #include "nvs.h"
+#include "esp_spiffs.h"
 
 static const char *TAG = "storage";
 
 // SD card handle
 static sdmmc_card_t *s_card = NULL;
 static bool s_sd_mounted = false;
+
+// Forward declarations
+static void storage_check_samples(void);
 
 // NVS keys
 #define NVS_KEY_SETTINGS "settings"
@@ -125,6 +129,9 @@ esp_err_t storage_mount_sd(void) {
     
     // Create images directory
     storage_create_images_dir();
+    
+    // Check for sample photos
+    storage_check_samples();
     
     ESP_LOGI(TAG, "SD card mounted at %s", SD_MOUNT_POINT);
     return ESP_OK;
@@ -502,4 +509,69 @@ esp_err_t storage_create_images_dir(void) {
     
     ESP_LOGI(TAG, "Created %s", IMAGES_DIR);
     return ESP_OK;
+}
+
+static void storage_check_samples(void) {
+    // Check if images directory is empty
+    int count = storage_get_image_count();
+    if (count > 0) return;
+    
+    ESP_LOGI(TAG, "No images found, checking for samples...");
+    
+    // Mount SPIFFS
+    esp_vfs_spiffs_conf_t conf = {
+      .base_path = "/spiffs",
+      .partition_label = "storage",
+      .max_files = 5,
+      .format_if_mount_failed = false
+    };
+    
+    esp_err_t ret = esp_vfs_spiffs_register(&conf);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to mount SPIFFS (%s)", esp_err_to_name(ret));
+        return;
+    }
+    
+    // Copy files
+    DIR *dir = opendir("/spiffs");
+    if (dir) {
+        struct dirent *entry;
+        while ((entry = readdir(dir)) != NULL) {
+            if (entry->d_type == DT_DIR) continue;
+            
+            // Check extension
+            const char *ext = strrchr(entry->d_name, '.');
+            if (!ext) continue;
+            
+            // Construct paths
+            char src_path[PATH_MAX_LEN];
+            char dst_path[PATH_MAX_LEN];
+            snprintf(src_path, sizeof(src_path), "/spiffs/%s", entry->d_name);
+            snprintf(dst_path, sizeof(dst_path), "%s/%s", IMAGES_DIR, entry->d_name);
+            
+            ESP_LOGI(TAG, "Restoring sample: %s", entry->d_name);
+            
+            // Copy file
+            FILE *src = fopen(src_path, "rb");
+            FILE *dst = fopen(dst_path, "wb");
+            
+            if (src && dst) {
+                char *buf = malloc(4096);
+                if (buf) {
+                    size_t n;
+                    while ((n = fread(buf, 1, 4096, src)) > 0) {
+                        fwrite(buf, 1, n, dst);
+                    }
+                    free(buf);
+                }
+            }
+            
+            if (src) fclose(src);
+            if (dst) fclose(dst);
+        }
+        closedir(dir);
+    }
+    
+    // Unmount SPIFFS
+    esp_vfs_spiffs_unregister("storage");
 }
