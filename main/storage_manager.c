@@ -472,30 +472,31 @@ uint64_t storage_get_free_space(void) {
     if (!s_sd_mounted) return 0;
     
     FATFS *fs;
-    DWORD fre_clust, fre_sect, tot_sect;
+    DWORD fre_clust;
 
     /* Get volume information and free clusters of drive 0 */
     if (f_getfree("0:", &fre_clust, &fs) != FR_OK) return 0;
 
-    /* Get total sectors and free sectors */
-    tot_sect = (fs->n_fatent - 2) * fs->csize;
-    fre_sect = fre_clust * fs->csize;
+    /* Calculate free space using 64-bit arithmetic to handle large SD cards */
+    // Cast to uint64_t BEFORE multiplication to prevent overflow
+    uint64_t fre_sect = (uint64_t)fre_clust * fs->csize;
 
-    /* Print the free space (assuming 512 bytes/sector) */
-    // Use uint64_t to prevent overflow
-    return (uint64_t)fre_sect * 512;
+    /* Return free space in bytes (assuming 512 bytes/sector) */
+    return fre_sect * 512;
 }
 
 uint64_t storage_get_total_space(void) {
     if (!s_sd_mounted) return 0;
     
     FATFS *fs;
-    DWORD fre_clust, tot_sect;
+    DWORD fre_clust;
 
     if (f_getfree("0:", &fre_clust, &fs) != FR_OK) return 0;
 
-    tot_sect = (fs->n_fatent - 2) * fs->csize;
-    return (uint64_t)tot_sect * 512;
+    /* Calculate total space using 64-bit arithmetic to handle large SD cards */
+    // Cast to uint64_t BEFORE multiplication to prevent overflow
+    uint64_t tot_sect = (uint64_t)(fs->n_fatent - 2) * fs->csize;
+    return tot_sect * 512;
 }
 
 esp_err_t storage_format_sd(void) {

@@ -288,9 +288,9 @@ void power_buzzer_beep(uint32_t frequency, uint32_t duration) {
 
 void power_buzzer_chord(void) {
     // Major chord going up (C5, E5, G5)
-    power_buzzer_beep(523, 100);
-    vTaskDelay(pdMS_TO_TICKS(50));
-    power_buzzer_beep(659, 100);
-    vTaskDelay(pdMS_TO_TICKS(50));
-    power_buzzer_beep(784, 150);
+    power_buzzer_beep(523, 15);
+    vTaskDelay(pdMS_TO_TICKS(20));
+    power_buzzer_beep(659, 15);
+    vTaskDelay(pdMS_TO_TICKS(20));
+    power_buzzer_beep(784, 15);
 }

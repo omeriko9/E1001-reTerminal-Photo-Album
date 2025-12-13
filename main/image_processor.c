@@ -886,12 +886,124 @@ static esp_err_t img_save_bmp(const char *filename, const uint8_t *data, int w, 
     return ESP_OK;
 }
 
+// Helper function to generate thumbnail using TJpgDec for large JPEGs
+static esp_err_t generate_thumbnail_tjpgd(const char *filename, const char *thumb_path) {
+    // Get image dimensions using stbi_info
+    int w, h, comp;
+    if (!stbi_info(filename, &w, &h, &comp)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    
+    // Calculate scale factor to get ~160x120 thumbnail
+    // TJpgDec supports scales: 1/1, 1/2, 1/4, 1/8
+    uint8_t scale = 0;
+    int sw = w, sh = h;
+    while (scale < 3 && (sw > 320 || sh > 240)) {
+        sw >>= 1;
+        sh >>= 1;
+        scale++;
+    }
+    
+    ESP_LOGI(TAG, "TJpgDec thumbnail: scale 1/%d -> %dx%d", 1 << scale, sw, sh);
+    
+    // Allocate grayscale buffer for scaled image
+    size_t buf_size = sw * sh;
+    uint8_t *gray = heap_caps_malloc(buf_size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!gray) {
+        gray = malloc(buf_size);
+    }
+    if (!gray) {
+        return ESP_ERR_NO_MEM;
+    }
+    
+    // Prepare tjpgd workspace
+    char *work = malloc(TJPGD_WORKSPACE_SIZE);
+    if (!work) {
+        free(gray);
+        return ESP_ERR_NO_MEM;
+    }
+    
+    tjpgd_ctx_t ctx = {0};
+    ctx.fp = fopen(filename, "rb");
+    if (!ctx.fp) {
+        free(gray);
+        free(work);
+        return ESP_ERR_NOT_FOUND;
+    }
+    ctx.output = gray;
+    ctx.width = sw;
+    ctx.height = sh;
+    
+    JDEC jd;
+    JRESULT res = jd_prepare(&jd, tjpgd_input_func, work, TJPGD_WORKSPACE_SIZE, &ctx);
+    if (res != JDR_OK) {
+        ESP_LOGE(TAG, "jd_prepare failed: %d", res);
+        fclose(ctx.fp);
+        free(gray);
+        free(work);
+        return ESP_FAIL;
+    }
+    
+    res = jd_decomp(&jd, tjpgd_output_func, scale);
+    fclose(ctx.fp);
+    free(work);
+    
+    if (res != JDR_OK) {
+        ESP_LOGE(TAG, "jd_decomp failed: %d", res);
+        free(gray);
+        return ESP_FAIL;
+    }
+    
+    // Now resize grayscale to 160x120 and convert to RGB
+    int thumb_w = 160;
+    int thumb_h = 120;
+    uint8_t *thumb = malloc(thumb_w * thumb_h * 3);
+    if (!thumb) {
+        free(gray);
+        return ESP_ERR_NO_MEM;
+    }
+    
+    for (int y = 0; y < thumb_h; y++) {
+        for (int x = 0; x < thumb_w; x++) {
+            int sx = x * sw / thumb_w;
+            int sy = y * sh / thumb_h;
+            uint8_t g = gray[sy * sw + sx];
+            int dst_idx = (y * thumb_w + x) * 3;
+            // Convert grayscale to RGB
+            thumb[dst_idx] = g;
+            thumb[dst_idx+1] = g;
+            thumb[dst_idx+2] = g;
+        }
+    }
+    
+    free(gray);
+    
+    // Save as BMP
+    esp_err_t ret = img_save_bmp(thumb_path, thumb, thumb_w, thumb_h, 3);
+    free(thumb);
+    
+    if (ret == ESP_OK) {
+        ESP_LOGI(TAG, "Thumbnail generated via TJpgDec: %s", thumb_path);
+    }
+    
+    return ret;
+}
+
 esp_err_t img_process_upload(const char *filename) {
     ESP_LOGI(TAG, "Processing upload: %s", filename);
     
+    // Determine file extension
+    const char *ext = strrchr(filename, '.');
+    bool is_jpeg = ext && (strcasecmp(ext, ".jpg") == 0 || strcasecmp(ext, ".jpeg") == 0);
+    
     // 1. Generate Thumbnail
+    char thumb_path[256];
+    snprintf(thumb_path, sizeof(thumb_path), "%s.thumb", filename);
+    
+    bool thumb_generated = false;
+    
+    // Try stbi_load first
     int w, h, comp;
-    // Force 3 components (RGB) for thumbnail
     stbi_uc *img = stbi_load(filename, &w, &h, &comp, 3); 
     if (img) {
         int thumb_w = 160;
@@ -911,17 +1023,25 @@ esp_err_t img_process_upload(const char *filename) {
                 }
             }
             
-            char thumb_path[256];
-            snprintf(thumb_path, sizeof(thumb_path), "%s.thumb", filename);
-            img_save_bmp(thumb_path, thumb, thumb_w, thumb_h, 3);
+            if (img_save_bmp(thumb_path, thumb, thumb_w, thumb_h, 3) == ESP_OK) {
+                thumb_generated = true;
+                ESP_LOGI(TAG, "Thumbnail generated: %s", thumb_path);
+            }
             free(thumb);
-            ESP_LOGI(TAG, "Thumbnail generated: %s", thumb_path);
         }
         stbi_image_free(img);
+    } else if (is_jpeg) {
+        // stbi failed - try TJpgDec for large JPEGs
+        ESP_LOGW(TAG, "stbi failed for %s, trying TJpgDec", filename);
+        if (generate_thumbnail_tjpgd(filename, thumb_path) == ESP_OK) {
+            thumb_generated = true;
+        }
     } else {
         ESP_LOGW(TAG, "Failed to load image for thumbnail: %s", filename);
-        // If stbi fails (e.g. large JPEG), try tjpgd for thumbnail too
-        // But for now, just skip
+    }
+    
+    if (!thumb_generated) {
+        ESP_LOGW(TAG, "Could not generate thumbnail for %s", filename);
     }
 
     // 2. Generate Optimized Image (BIN)
@@ -929,8 +1049,8 @@ esp_err_t img_process_upload(const char *filename) {
     char bin_path[256];
     // Replace extension with .bin
     strncpy(bin_path, filename, sizeof(bin_path));
-    char *ext = strrchr(bin_path, '.');
-    if (ext) strcpy(ext, ".bin");
+    char *bin_ext = strrchr(bin_path, '.');
+    if (bin_ext) strcpy(bin_ext, ".bin");
     else strcat(bin_path, ".bin");
 
     // If input is already .bin, skip

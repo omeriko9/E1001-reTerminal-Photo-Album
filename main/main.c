@@ -23,7 +23,6 @@
 #include "nvs_flash.h"
 #include "driver/gpio.h"
 #include "driver/spi_master.h"
-#include "driver/i2c.h"
 
 #include "board_config.h"
 #include "wifi_manager.h"
@@ -33,7 +32,6 @@
 #include "power_manager.h"
 #include "carousel.h"
 #include "display_overlay.h"
-#include "sht40.h"
 
 static const char *TAG = "main";
 
@@ -51,7 +49,17 @@ static void wifi_timeout_callback(TimerHandle_t timer) {
     s_wifi_shutdown_requested = true;
 }
 
-void app_reset_wifi_timer(void) {
+void app_reset_wifi_timer(void)
+{
+    if (s_wifi_timer && s_wifi_timeout_sec > 0)
+    {
+        xTimerChangePeriod(s_wifi_timer, pdMS_TO_TICKS(s_wifi_timeout_sec * 1000), 0);
+        xTimerReset(s_wifi_timer, 0);
+        s_wifi_shutdown_requested = false;
+    }
+}
+
+static void reset_wifi_timer(void) {
     if (s_wifi_timer && s_wifi_timeout_sec > 0) {
         xTimerChangePeriod(s_wifi_timer, pdMS_TO_TICKS(s_wifi_timeout_sec * 1000), 0);
         xTimerReset(s_wifi_timer, 0);
@@ -70,14 +78,19 @@ static void wifi_callback(wifi_mgr_status_t status, void *ctx) {
         case WIFI_MGR_STATUS_AP_ACTIVE:
             ESP_LOGI(TAG, "AP mode active - starting web server");
             webserver_start();
-            app_reset_wifi_timer();
+            reset_wifi_timer();
+            {
+                wifi_mgr_info_t ap_info;
+                wifi_mgr_get_info(&ap_info);
+                carousel_show_ap_config(ap_info.ap_ssid);
+            }
             break;
             
         case WIFI_MGR_STATUS_CONNECTED:
             ESP_LOGI(TAG, "Connected to WiFi - starting web server and time sync");
             webserver_start();
-            overlay_sync_time();
-            app_reset_wifi_timer();
+            // overlay_sync_time();
+            reset_wifi_timer();
             
             // Show IP address on screen
             wifi_mgr_info_t info;
@@ -96,7 +109,7 @@ static void wifi_callback(wifi_mgr_status_t status, void *ctx) {
             
         case WIFI_MGR_STATUS_AP_STATION_DISCONNECTED:
             ESP_LOGI(TAG, "Client disconnected from AP - restarting auto-off timer");
-            app_reset_wifi_timer();
+            reset_wifi_timer();
             break;
             
         default:
@@ -199,7 +212,7 @@ static void button_poll_task(void *arg) {
                 carousel_handle_button(i);
                 
                 // Reset WiFi timer on any button press
-                app_reset_wifi_timer();
+                reset_wifi_timer();
             }
             last_state[i] = states[i];
         }
@@ -231,26 +244,8 @@ void app_main(void) {
     };
     ESP_ERROR_CHECK(spi_bus_initialize(SPI_HOST_USED, &buscfg, SPI_DMA_CHAN));
     
-    // Initialize I2C Bus
-    i2c_config_t i2c_conf = {
-        .mode = I2C_MODE_MASTER,
-        .sda_io_num = PIN_I2C0_SDA,
-        .scl_io_num = PIN_I2C0_SCL,
-        .sda_pullup_en = GPIO_PULLUP_ENABLE,
-        .scl_pullup_en = GPIO_PULLUP_ENABLE,
-        .master.clk_speed = I2C0_FREQ_HZ,
-    };
-    ESP_ERROR_CHECK(i2c_param_config(I2C_NUM_0, &i2c_conf));
-    ESP_ERROR_CHECK(i2c_driver_install(I2C_NUM_0, I2C_MODE_MASTER, 0, 0, 0));
-
-    // Initialize SHT40
-    sht40_init();
-
     // Initialize storage (NVS and SD card)
     ESP_ERROR_CHECK(storage_init());
-    
-    // Check for missing optimizations
-    storage_process_missing_optimizations();
     
     // Load settings
     app_settings_t settings;
@@ -280,7 +275,7 @@ void app_main(void) {
         case WAKE_REASON_BUTTON_K0:
             // WiFi button pressed - start WiFi
             ESP_LOGI(TAG, "WiFi button wake - starting WiFi");
-            power_buzzer_chord();
+            power_buzzer_beep(1000, 200);
             
             if (wifi_mgr_has_credentials()) {
                 if (wifi_mgr_start_sta() != ESP_OK) {
@@ -294,14 +289,14 @@ void app_main(void) {
         case WAKE_REASON_BUTTON_K1:
             // Next image button
             ESP_LOGI(TAG, "Next button wake");
-            power_buzzer_beep(2000, 50);
+            power_buzzer_beep(2000, 100);
             carousel_next();
             break;
             
         case WAKE_REASON_BUTTON_K2:
             // Previous image button
             ESP_LOGI(TAG, "Prev button wake");
-            power_buzzer_beep(2000, 50);
+            power_buzzer_beep(2000, 100);
             carousel_prev();
             break;
             
@@ -315,7 +310,9 @@ void app_main(void) {
         default:
             // Fresh boot - show startup screen and start AP if not provisioned
             ESP_LOGI(TAG, "Fresh boot");
-            power_buzzer_chord();
+            power_buzzer_beep(500, 100);
+            vTaskDelay(pdMS_TO_TICKS(100));
+            power_buzzer_beep(1000, 100);
             
             display_startup_screen();
             vTaskDelay(pdMS_TO_TICKS(2000));

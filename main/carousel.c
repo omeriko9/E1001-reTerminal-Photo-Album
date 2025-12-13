@@ -33,6 +33,8 @@ static bool s_refresh_pending = false;
 static int s_show_index = -1;  // -1 = auto, >= 0 = specific index
 static char s_startup_ip[32] = {0};
 static bool s_show_startup_ip = false;
+static char s_ap_ssid[33] = {0};
+static bool s_show_ap_config = false;
 
 esp_err_t carousel_init(void) {
     s_mutex = xSemaphoreCreateMutex();
@@ -86,18 +88,41 @@ static void display_image(int index) {
             free(raw_data);
         }
     } else {
-        // For other images (JPG, PNG, BMP), stream from file to save memory
-        img_process_opts_t opts;
-        img_get_default_opts(&opts);
-        opts.fit_mode = s_settings.fit_mode;
+        // Try to load pre-generated .bin file first (much faster)
+        char bin_filename[MAX_FILENAME_LEN];
+        strncpy(bin_filename, info.filename, sizeof(bin_filename) - 1);
+        bin_filename[sizeof(bin_filename) - 1] = '\0';
+        char *dot = strrchr(bin_filename, '.');
+        if (dot) {
+            strcpy(dot, ".bin");
+        } else {
+            strncat(bin_filename, ".bin", sizeof(bin_filename) - strlen(bin_filename) - 1);
+        }
         
-        // Construct full path
-        char full_path[128];
-        snprintf(full_path, sizeof(full_path), "%s/%s", IMAGES_DIR, info.filename);
-        
-        if (img_process_file(full_path, fb, EPAPER_BUFFER_SIZE, &opts) != ESP_OK) {
-            ESP_LOGE(TAG, "Image processing failed");
-            memset(fb, 0xFF, EPAPER_BUFFER_SIZE);
+        uint8_t *bin_data = NULL;
+        size_t bin_size = 0;
+        if (storage_load_image(bin_filename, &bin_data, &bin_size) == ESP_OK && 
+            bin_size == EPAPER_BUFFER_SIZE) {
+            // Use pre-generated binary
+            ESP_LOGI(TAG, "Using pre-generated %s", bin_filename);
+            memcpy(fb, bin_data, EPAPER_BUFFER_SIZE);
+            free(bin_data);
+        } else {
+            // Fallback: process the original image
+            if (bin_data) free(bin_data);
+            
+            img_process_opts_t opts;
+            img_get_default_opts(&opts);
+            opts.fit_mode = s_settings.fit_mode;
+            
+            // Construct full path
+            char full_path[128];
+            snprintf(full_path, sizeof(full_path), "%s/%s", IMAGES_DIR, info.filename);
+            
+            if (img_process_file(full_path, fb, EPAPER_BUFFER_SIZE, &opts) != ESP_OK) {
+                ESP_LOGE(TAG, "Image processing failed");
+                memset(fb, 0xFF, EPAPER_BUFFER_SIZE);
+            }
         }
     }
     
@@ -190,6 +215,29 @@ static void display_connect_screen(const char *ip) {
     epd_display(fb, EPD_UPDATE_FULL);
 }
 
+static void display_ap_config_screen(const char *ssid) {
+    uint8_t *fb = epd_get_framebuffer();
+    if (!fb) return;
+    
+    // Clear to white
+    memset(fb, 0xFF, EPAPER_BUFFER_SIZE);
+    
+    const char *msg1 = "Connect to WiFi:";
+    const char *msg3 = "To configure home WiFi";
+    
+    int x1 = (EPAPER_WIDTH - epd_get_text_width_large(msg1, 1)) / 2;
+    int x2 = (EPAPER_WIDTH - epd_get_text_width_large(ssid, 2)) / 2;
+    int x3 = (EPAPER_WIDTH - epd_get_text_width_large(msg3, 1)) / 2;
+    
+    int y = EPAPER_HEIGHT / 2 - 60;
+    
+    epd_draw_text_large(x1, y, msg1, 1, 0);
+    epd_draw_text_large(x2, y + 40, ssid, 2, 0);
+    epd_draw_text_large(x3, y + 100, msg3, 1, 0);
+    
+    epd_display(fb, EPD_UPDATE_FULL);
+}
+
 void carousel_task(void *arg) {
     ESP_LOGI(TAG, "Carousel task started");
     
@@ -207,10 +255,26 @@ void carousel_task(void *arg) {
             
             ESP_LOGI(TAG, "Displaying connect info for %s", ip);
             display_connect_screen(ip);
+            vTaskDelay(pdMS_TO_TICKS(3000));
+            
+            // Force immediate update after message
+            last_display = 0;
+            continue;
+        }
+
+        // Check if AP config needs to be shown
+        if (s_show_ap_config) {
+            s_show_ap_config = false;
+            char ssid[33];
+            strncpy(ssid, s_ap_ssid, sizeof(ssid));
+            xSemaphoreGive(s_mutex);
+            
+            ESP_LOGI(TAG, "Displaying AP config info for %s", ssid);
+            display_ap_config_screen(ssid);
             vTaskDelay(pdMS_TO_TICKS(5000));
             
-            // Reset timer to delay next image
-            last_display = xTaskGetTickCount();
+            // Force immediate update after message
+            last_display = 0;
             continue;
         }
 
@@ -250,7 +314,13 @@ void carousel_task(void *arg) {
             if (image_count > 0) {
                 display_image(target_index);
             } else {
-                display_no_images();
+                wifi_mgr_info_t wifi_info;
+                wifi_mgr_get_info(&wifi_info);
+                if (wifi_info.mode == WIFI_MGR_MODE_AP) {
+                    display_ap_config_screen(wifi_info.ap_ssid);
+                } else {
+                    display_no_images();
+                }
             }
             last_display = xTaskGetTickCount();
             
@@ -320,6 +390,15 @@ void carousel_show_connected_ip(const char *ip_addr) {
     xSemaphoreTake(s_mutex, portMAX_DELAY);
     strncpy(s_startup_ip, ip_addr, sizeof(s_startup_ip) - 1);
     s_show_startup_ip = true;
+    // Force task wake up if sleeping
+    s_refresh_pending = true; 
+    xSemaphoreGive(s_mutex);
+}
+
+void carousel_show_ap_config(const char *ssid) {
+    xSemaphoreTake(s_mutex, portMAX_DELAY);
+    strncpy(s_ap_ssid, ssid, sizeof(s_ap_ssid) - 1);
+    s_show_ap_config = true;
     // Force task wake up if sleeping
     s_refresh_pending = true; 
     xSemaphoreGive(s_mutex);

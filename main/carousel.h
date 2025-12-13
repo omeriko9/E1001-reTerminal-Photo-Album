@@ -82,6 +82,12 @@ void carousel_handle_button(int button);
 void carousel_show_connected_ip(const char *ip_addr);
 
 /**
+ * @brief Show AP config screen for 5 seconds
+ * @param ssid AP SSID string
+ */
+void carousel_show_ap_config(const char *ssid);
+
+/**
  * @brief Main carousel task (internal use)
  */
 void carousel_task(void *arg);
