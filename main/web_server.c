@@ -1017,41 +1017,29 @@ esp_err_t webserver_start(void) {
     }
     
     // Register handlers
-    httpd_uri_t root = { .uri = "/", .method = HTTP_GET, .handler = handle_root };
-    httpd_uri_t wifi_ui = { .uri = "/wifi", .method = HTTP_GET, .handler = handle_wifi_ui };
-    httpd_uri_t status = { .uri = "/api/status", .method = HTTP_GET, .handler = handle_status };
-    httpd_uri_t get_images = { .uri = "/api/images", .method = HTTP_GET, .handler = handle_get_images };
-    httpd_uri_t del_all_images = { .uri = "/api/images", .method = HTTP_DELETE, .handler = handle_delete_all_images };
-    httpd_uri_t del_image = { .uri = "/api/images/*", .method = HTTP_DELETE, .handler = handle_delete_image };
-    httpd_uri_t upload = { .uri = "/api/upload", .method = HTTP_POST, .handler = handle_upload };
-    httpd_uri_t get_settings = { .uri = "/api/settings", .method = HTTP_GET, .handler = handle_get_settings };
-    httpd_uri_t set_settings = { .uri = "/api/settings", .method = HTTP_POST, .handler = handle_set_settings };
-    httpd_uri_t wifi_connect = { .uri = "/api/wifi/connect", .method = HTTP_POST, .handler = handle_wifi_connect };
-    httpd_uri_t wifi_scan = { .uri = "/api/wifi/scan", .method = HTTP_GET, .handler = handle_wifi_scan };
-    httpd_uri_t display = { .uri = "/api/display/*", .method = HTTP_POST, .handler = handle_display };
-    httpd_uri_t restart = { .uri = "/api/restart", .method = HTTP_POST, .handler = handle_restart };
-    httpd_uri_t reset = { .uri = "/api/reset", .method = HTTP_POST, .handler = handle_reset };
-    httpd_uri_t get_file = { .uri = "/api/files/*", .method = HTTP_GET, .handler = handle_get_file };
-    
-    httpd_register_uri_handler(s_server, &root);
-    httpd_register_uri_handler(s_server, &wifi_ui);
-    httpd_register_uri_handler(s_server, &status);
-    httpd_register_uri_handler(s_server, &get_images);
-    httpd_register_uri_handler(s_server, &del_all_images);
-    httpd_register_uri_handler(s_server, &del_image);
-    httpd_register_uri_handler(s_server, &upload);
-    httpd_register_uri_handler(s_server, &get_settings);
-    httpd_register_uri_handler(s_server, &set_settings);
-    httpd_register_uri_handler(s_server, &wifi_connect);
-    httpd_register_uri_handler(s_server, &wifi_scan);
-    httpd_register_uri_handler(s_server, &display);
-    httpd_register_uri_handler(s_server, &restart);
-    httpd_register_uri_handler(s_server, &reset);
-    httpd_register_uri_handler(s_server, &get_file);
-    
-    // Captive Portal catch-all
-    httpd_uri_t captive_portal = { .uri = "*", .method = HTTP_GET, .handler = handle_captive_portal };
-    httpd_register_uri_handler(s_server, &captive_portal);
+    static const httpd_uri_t handlers[] = {
+        { .uri = "/", .method = HTTP_GET, .handler = handle_root },
+        { .uri = "/wifi", .method = HTTP_GET, .handler = handle_wifi_ui },
+        { .uri = "/api/status", .method = HTTP_GET, .handler = handle_status },
+        { .uri = "/api/images", .method = HTTP_GET, .handler = handle_get_images },
+        { .uri = "/api/images", .method = HTTP_DELETE, .handler = handle_delete_all_images },
+        { .uri = "/api/images/*", .method = HTTP_DELETE, .handler = handle_delete_image },
+        { .uri = "/api/upload", .method = HTTP_POST, .handler = handle_upload },
+        { .uri = "/api/settings", .method = HTTP_GET, .handler = handle_get_settings },
+        { .uri = "/api/settings", .method = HTTP_POST, .handler = handle_set_settings },
+        { .uri = "/api/wifi/connect", .method = HTTP_POST, .handler = handle_wifi_connect },
+        { .uri = "/api/wifi/scan", .method = HTTP_GET, .handler = handle_wifi_scan },
+        { .uri = "/api/display/*", .method = HTTP_POST, .handler = handle_display },
+        { .uri = "/api/restart", .method = HTTP_POST, .handler = handle_restart },
+        { .uri = "/api/reset", .method = HTTP_POST, .handler = handle_reset },
+        { .uri = "/api/files/*", .method = HTTP_GET, .handler = handle_get_file },
+        // Captive Portal catch-all
+        { .uri = "*", .method = HTTP_GET, .handler = handle_captive_portal }
+    };
+
+    for (int i = 0; i < sizeof(handlers)/sizeof(handlers[0]); i++) {
+        httpd_register_uri_handler(s_server, &handlers[i]);
+    }
     
     ESP_LOGI(TAG, "Web server started");
     return ESP_OK;

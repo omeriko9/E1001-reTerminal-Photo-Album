@@ -220,6 +220,15 @@ void overlay_set_time(time_t epoch)
 static void sntp_sync_callback(struct timeval *tv)
 {
     ESP_LOGI(TAG, "SNTP sync complete");
+    
+    time_t now;
+    time(&now);
+    struct tm timeinfo;
+    localtime_r(&now, &timeinfo);
+
+    char buf[64];
+    strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", &timeinfo);
+    ESP_LOGI(TAG, "Time synced: %s", buf);
 }
 
 esp_err_t overlay_sync_time(void)
@@ -236,29 +245,6 @@ esp_err_t overlay_sync_time(void)
     esp_sntp_setservername(2, "time.cloudflare.com");
     esp_sntp_set_time_sync_notification_cb(sntp_sync_callback);
     esp_sntp_init();
-
-    // Wait for sync (with timeout)
-    int retry = 0;
-    while (sntp_get_sync_status() == SNTP_SYNC_STATUS_RESET && retry < 30)
-    {
-        vTaskDelay(pdMS_TO_TICKS(1000));
-        retry++;
-    }
-
-    if (sntp_get_sync_status() != SNTP_SYNC_STATUS_COMPLETED)
-    {
-        ESP_LOGW(TAG, "SNTP sync timeout");
-        return ESP_ERR_TIMEOUT;
-    }
-
-    time_t now;
-    time(&now);
-    struct tm timeinfo;
-    localtime_r(&now, &timeinfo);
-
-    char buf[64];
-    strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", &timeinfo);
-    ESP_LOGI(TAG, "Time synced: %s", buf);
 
     return ESP_OK;
 }
