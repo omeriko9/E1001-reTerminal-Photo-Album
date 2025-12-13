@@ -4,6 +4,7 @@
 
 #include "image_processor.h"
 #include "board_config.h"
+#include "storage_manager.h"
 
 #include <string.h>
 #include <stdlib.h>
@@ -620,14 +621,35 @@ static int tjpgd_output_func(JDEC *jd, void *bitmap, JRECT *rect) {
     uint8_t *src = (uint8_t *)bitmap;
     
     // Copy block to output buffer
-    // JD_FORMAT=2 means 1 byte per pixel
+    // JD_FORMAT=2 means 1 byte per pixel (grayscale)
+    // TJpgDec outputs blocks (usually 8x8 or 16x16)
+    // We need to copy row by row
+    
     int w = rect->right - rect->left + 1;
     int h = rect->bottom - rect->top + 1;
     
     for (int y = 0; y < h; y++) {
-        int dst_idx = (rect->top + y) * ctx->width + rect->left;
-        if (dst_idx + w <= ctx->width * ctx->height) {
-            memcpy(ctx->output + dst_idx, src + y * w, w);
+        // Calculate destination index in the full image buffer
+        // rect->top + y is the current row in the full image
+        // rect->left is the starting column
+        int dst_row = rect->top + y;
+        
+        // Safety check
+        if (dst_row >= ctx->height) continue;
+        
+        int dst_idx = dst_row * ctx->width + rect->left;
+        
+        // Copy one row of the block
+        // Ensure we don't write past the width
+        int copy_w = w;
+        if (rect->left + copy_w > ctx->width) {
+            copy_w = ctx->width - rect->left;
+        }
+        
+        if (copy_w > 0) {
+            // src is the block buffer, it has width 'w'
+            // We copy 'copy_w' bytes from src to ctx->output
+            memcpy(ctx->output + dst_idx, src + y * w, copy_w);
         }
     }
     
@@ -821,4 +843,121 @@ esp_err_t img_process_file(const char *filename,
 bool img_is_valid_epd_buffer(const uint8_t *data, size_t size)
 {
     return data != NULL && size == EPAPER_BUFFER_SIZE;
+}
+
+// Helper to save BMP
+static esp_err_t img_save_bmp(const char *filename, const uint8_t *data, int w, int h, int comp) {
+    FILE *f = fopen(filename, "wb");
+    if (!f) {
+        ESP_LOGE(TAG, "Failed to open %s for writing", filename);
+        return ESP_FAIL;
+    }
+
+    int row_padded = (w * comp + 3) & (~3);
+    int size = 54 + row_padded * h;
+
+    uint8_t header[54] = {
+        'B','M',
+        size & 0xFF, (size >> 8) & 0xFF, (size >> 16) & 0xFF, (size >> 24) & 0xFF,
+        0,0, 0,0,
+        54,0,0,0,
+        40,0,0,0,
+        w & 0xFF, (w >> 8) & 0xFF, (w >> 16) & 0xFF, (w >> 24) & 0xFF,
+        h & 0xFF, (h >> 8) & 0xFF, (h >> 16) & 0xFF, (h >> 24) & 0xFF,
+        1,0,
+        comp * 8, 0,
+        0,0,0,0,
+        0,0,0,0,
+        0,0,0,0,
+        0,0,0,0,
+        0,0,0,0,
+        0,0,0,0
+    };
+
+    fwrite(header, 1, 54, f);
+
+    uint8_t *pad = calloc(1, 4);
+    for (int y = h - 1; y >= 0; y--) {
+        fwrite(data + y * w * comp, 1, w * comp, f);
+        fwrite(pad, 1, row_padded - w * comp, f);
+    }
+    free(pad);
+    fclose(f);
+    return ESP_OK;
+}
+
+esp_err_t img_process_upload(const char *filename) {
+    ESP_LOGI(TAG, "Processing upload: %s", filename);
+    
+    // 1. Generate Thumbnail
+    int w, h, comp;
+    // Force 3 components (RGB) for thumbnail
+    stbi_uc *img = stbi_load(filename, &w, &h, &comp, 3); 
+    if (img) {
+        int thumb_w = 160;
+        int thumb_h = 120;
+        uint8_t *thumb = malloc(thumb_w * thumb_h * 3);
+        if (thumb) {
+            // Simple nearest neighbor resize
+            for (int y = 0; y < thumb_h; y++) {
+                for (int x = 0; x < thumb_w; x++) {
+                    int sx = x * w / thumb_w;
+                    int sy = y * h / thumb_h;
+                    int src_idx = (sy * w + sx) * 3;
+                    int dst_idx = (y * thumb_w + x) * 3;
+                    thumb[dst_idx] = img[src_idx];
+                    thumb[dst_idx+1] = img[src_idx+1];
+                    thumb[dst_idx+2] = img[src_idx+2];
+                }
+            }
+            
+            char thumb_path[256];
+            snprintf(thumb_path, sizeof(thumb_path), "%s.thumb", filename);
+            img_save_bmp(thumb_path, thumb, thumb_w, thumb_h, 3);
+            free(thumb);
+            ESP_LOGI(TAG, "Thumbnail generated: %s", thumb_path);
+        }
+        stbi_image_free(img);
+    } else {
+        ESP_LOGW(TAG, "Failed to load image for thumbnail: %s", filename);
+        // If stbi fails (e.g. large JPEG), try tjpgd for thumbnail too
+        // But for now, just skip
+    }
+
+    // 2. Generate Optimized Image (BIN)
+    // Check if .bin already exists (maybe uploaded as .bin)
+    char bin_path[256];
+    // Replace extension with .bin
+    strncpy(bin_path, filename, sizeof(bin_path));
+    char *ext = strrchr(bin_path, '.');
+    if (ext) strcpy(ext, ".bin");
+    else strcat(bin_path, ".bin");
+
+    // If input is already .bin, skip
+    if (strcmp(filename, bin_path) == 0) return ESP_OK;
+
+    // Process to .bin
+    uint8_t *processed = heap_caps_malloc(EPAPER_BUFFER_SIZE, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (processed) {
+        img_process_opts_t opts;
+        img_get_default_opts(&opts);
+        
+        // Load settings for fit mode
+        app_settings_t settings;
+        if (storage_load_settings(&settings) == ESP_OK) {
+            opts.fit_mode = settings.fit_mode;
+        }
+
+        if (img_process_file(filename, processed, EPAPER_BUFFER_SIZE, &opts) == ESP_OK) {
+            FILE *f = fopen(bin_path, "wb");
+            if (f) {
+                fwrite(processed, 1, EPAPER_BUFFER_SIZE, f);
+                fclose(f);
+                ESP_LOGI(TAG, "Optimized binary generated: %s", bin_path);
+            }
+        }
+        free(processed);
+    }
+
+    return ESP_OK;
 }

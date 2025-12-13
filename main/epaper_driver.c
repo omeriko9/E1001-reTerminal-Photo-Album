@@ -390,24 +390,32 @@ void epd_display(const uint8_t *buffer, epd_update_mode_t mode) {
     // We assume the previous frame was cleared/white (0xFF in buffer), so we send 0x00.
     epd_write_cmd(CMD_DATA_START_TRANS_1);
     
+    EPD_DC_DATA();
+    EPD_CS_LOW();
+    
     // Create a buffer for "old data" (0x00 = White)
     uint8_t *old_buf = heap_caps_malloc(4096, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
     if (old_buf) {
         memset(old_buf, 0x00, 4096);
         for (int i = 0; i < EPAPER_BUFFER_SIZE; i += 4096) {
             size_t chunk = (EPAPER_BUFFER_SIZE - i > 4096) ? 4096 : (EPAPER_BUFFER_SIZE - i);
-            epd_write_data(old_buf, chunk);
+            epd_spi_write(old_buf, chunk);
         }
         free(old_buf);
     } else {
         // Fallback
+        uint8_t val = 0x00;
         for (int i = 0; i < EPAPER_BUFFER_SIZE; i++) {
-            epd_write_data_byte(0x00);
+            epd_spi_write(&val, 1);
         }
     }
+    EPD_CS_HIGH();
     
     // Send new data (Inverted: Buffer 1=White -> Panel 0=White)
     epd_write_cmd(CMD_DATA_START_TRANS_2);
+    
+    EPD_DC_DATA();
+    EPD_CS_LOW();
     
     uint8_t *temp_buf = heap_caps_malloc(4096, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
     if (temp_buf) {
@@ -419,15 +427,17 @@ void epd_display(const uint8_t *buffer, epd_update_mode_t mode) {
                 temp_buf[j] = ~buffer[i + j];
             }
             
-            epd_write_data(temp_buf, chunk);
+            epd_spi_write(temp_buf, chunk);
         }
         free(temp_buf);
     } else {
         // Fallback
         for (int i = 0; i < EPAPER_BUFFER_SIZE; i++) {
-            epd_write_data_byte(~buffer[i]);
+            uint8_t val = ~buffer[i];
+            epd_spi_write(&val, 1);
         }
     }
+    EPD_CS_HIGH();
     
     // Refresh
     epd_write_cmd(CMD_DISPLAY_REFRESH);
@@ -617,26 +627,35 @@ void epd_draw_text_large(int x, int y, const char *text, int size, uint8_t color
     int cursor_x = x;
     
     while (*text) {
-        char c = *text++;
-        
-        // Only handle printable ASCII
-        if (c < ' ' || c > '~') {
-            cursor_x += 16 * size;
-            continue;
+        uint8_t c = (uint8_t)*text++;
+        int font_idx = -1;
+
+        if (c >= ' ' && c <= '~') {
+            // ASCII
+            font_idx = c - ' ';
+        } else if (c == 0xD7) {
+            // Hebrew (possibly)
+            if (*text) {
+                uint8_t c2 = (uint8_t)*text++;
+                uint16_t unicode = ((c & 0x1F) << 6) | (c2 & 0x3F);
+                if (unicode >= 0x05D0 && unicode <= 0x05EA) {
+                    font_idx = 95 + (unicode - 0x05D0);
+                }
+            }
         }
         
-        int font_idx = (c - ' ');
-        
-        for (int row = 0; row < 24; row++) {
-            uint16_t line = font_16x24[font_idx * 24 + row];
-            
-            for (int col = 0; col < 16; col++) {
-                if (line & (0x8000 >> col)) {
-                    for (int sy = 0; sy < size; sy++) {
-                        for (int sx = 0; sx < size; sx++) {
-                            epd_set_pixel(cursor_x + col * size + sx, 
-                                         y + row * size + sy, 
-                                         color);
+        if (font_idx >= 0) {
+            for (int row = 0; row < 24; row++) {
+                uint16_t line = font_16x24[font_idx * 24 + row];
+                
+                for (int col = 0; col < 16; col++) {
+                    if (line & (0x8000 >> col)) {
+                        for (int sy = 0; sy < size; sy++) {
+                            for (int sx = 0; sx < size; sx++) {
+                                epd_set_pixel(cursor_x + col * size + sx, 
+                                             y + row * size + sy, 
+                                             color);
+                            }
                         }
                     }
                 }
@@ -654,5 +673,18 @@ int epd_get_text_width(const char *text, int size) {
 
 int epd_get_text_width_large(const char *text, int size) {
     if (!text) return 0;
-    return strlen(text) * 16 * size;
+    int len = 0;
+    const char *p = text;
+    while (*p) {
+        uint8_t c = (uint8_t)*p++;
+        if (c >= ' ' && c <= '~') {
+            len++;
+        } else if (c == 0xD7) {
+            if (*p) {
+                p++;
+                len++;
+            }
+        }
+    }
+    return len * 16 * size;
 }

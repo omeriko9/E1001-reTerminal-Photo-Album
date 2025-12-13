@@ -112,3 +112,10 @@ void img_scale(const uint8_t *input, uint16_t in_w, uint16_t in_h,
  * @brief Check if raw buffer is valid e-ink format
  */
 bool img_is_valid_epd_buffer(const uint8_t *data, size_t size);
+
+/**
+ * @brief Process uploaded image (generate thumbnail and optimized binary)
+ * @param filename Full path to uploaded file
+ * @return ESP_OK on success
+ */
+esp_err_t img_process_upload(const char *filename);

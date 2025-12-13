@@ -249,6 +249,9 @@ void app_main(void) {
     // Initialize storage (NVS and SD card)
     ESP_ERROR_CHECK(storage_init());
     
+    // Check for missing optimizations
+    storage_process_missing_optimizations();
+    
     // Load settings
     app_settings_t settings;
     storage_load_settings(&settings);

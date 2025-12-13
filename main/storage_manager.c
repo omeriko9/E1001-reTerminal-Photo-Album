@@ -4,6 +4,7 @@
 
 #include "storage_manager.h"
 #include "board_config.h"
+#include "image_processor.h"
 
 #include <string.h>
 #include <dirent.h>
@@ -470,21 +471,31 @@ esp_err_t storage_save_settings(const app_settings_t *settings) {
 uint64_t storage_get_free_space(void) {
     if (!s_sd_mounted) return 0;
     
-    uint64_t total, free_space;
-    if (esp_vfs_fat_info(SD_MOUNT_POINT, &total, &free_space) != ESP_OK) {
-        return 0;
-    }
-    return free_space;
+    FATFS *fs;
+    DWORD fre_clust, fre_sect, tot_sect;
+
+    /* Get volume information and free clusters of drive 0 */
+    if (f_getfree("0:", &fre_clust, &fs) != FR_OK) return 0;
+
+    /* Get total sectors and free sectors */
+    tot_sect = (fs->n_fatent - 2) * fs->csize;
+    fre_sect = fre_clust * fs->csize;
+
+    /* Print the free space (assuming 512 bytes/sector) */
+    // Use uint64_t to prevent overflow
+    return (uint64_t)fre_sect * 512;
 }
 
 uint64_t storage_get_total_space(void) {
     if (!s_sd_mounted) return 0;
     
-    uint64_t total, free_space;
-    if (esp_vfs_fat_info(SD_MOUNT_POINT, &total, &free_space) != ESP_OK) {
-        return 0;
-    }
-    return total;
+    FATFS *fs;
+    DWORD fre_clust, tot_sect;
+
+    if (f_getfree("0:", &fre_clust, &fs) != FR_OK) return 0;
+
+    tot_sect = (fs->n_fatent - 2) * fs->csize;
+    return (uint64_t)tot_sect * 512;
 }
 
 esp_err_t storage_format_sd(void) {
@@ -575,4 +586,72 @@ static void storage_check_samples(void) {
     
     // Unmount SPIFFS
     esp_vfs_spiffs_unregister("storage");
+}
+
+static void process_optimizations_task(void *arg) {
+    if (!s_sd_mounted) {
+        vTaskDelete(NULL);
+        return;
+    }
+
+    DIR *d = opendir(IMAGES_DIR);
+    if (!d) {
+        vTaskDelete(NULL);
+        return;
+    }
+
+    struct dirent *de;
+    while ((de = readdir(d)) != NULL) {
+        if (de->d_type != DT_REG) continue;
+        
+        // Skip hidden files
+        if (de->d_name[0] == '.') continue;
+
+        // Check extension
+        char *ext = strrchr(de->d_name, '.');
+        if (!ext) continue;
+
+        // Skip .bin and .thumb files
+        if (strcasecmp(ext, ".bin") == 0 || strcasecmp(ext, ".thumb") == 0) continue;
+
+        // Construct full path
+        char filepath[PATH_MAX_LEN];
+        snprintf(filepath, sizeof(filepath), "%s/%s", IMAGES_DIR, de->d_name);
+
+        // Check if .thumb exists
+        char thumbpath[PATH_MAX_LEN + 8];
+        snprintf(thumbpath, sizeof(thumbpath), "%s.thumb", filepath);
+        struct stat st;
+        bool need_process = false;
+        if (stat(thumbpath, &st) != 0) {
+            need_process = true;
+        } else {
+            // Check if .bin exists
+            char binpath[PATH_MAX_LEN];
+            strncpy(binpath, filepath, sizeof(binpath));
+            char *binext = strrchr(binpath, '.');
+            if (binext) strcpy(binext, ".bin");
+            else strcat(binpath, ".bin");
+            
+            if (stat(binpath, &st) != 0) {
+                need_process = true;
+            }
+        }
+
+        if (need_process) {
+            ESP_LOGI(TAG, "Generating optimizations for %s", de->d_name);
+            img_process_upload(filepath);
+            // Yield to avoid watchdog
+            vTaskDelay(pdMS_TO_TICKS(10));
+        }
+    }
+    closedir(d);
+    ESP_LOGI(TAG, "Optimization scan complete");
+    vTaskDelete(NULL);
+}
+
+void storage_process_missing_optimizations(void) {
+    // Spawn a task with large stack to handle image processing
+    // 32KB stack to be safe with stbi_load
+    xTaskCreate(process_optimizations_task, "img_opt", 32768, NULL, 1, NULL);
 }

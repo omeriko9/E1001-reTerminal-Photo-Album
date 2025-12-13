@@ -8,13 +8,25 @@ def generate_c_font(font_path, size, output_file):
         print(f"Could not load font: {font_path}")
         return
 
-    # Character range (ASCII 32-126)
-    chars = range(32, 127)
+    # Character ranges
+    # ASCII 32-126
+    ascii_chars = range(32, 127)
+    # Hebrew 0x05D0 - 0x05EA
+    hebrew_chars = range(0x05D0, 0x05EA + 1)
+    
+    all_chars = list(ascii_chars) + list(hebrew_chars)
     
     # Font dimensions
     char_width = 16
     char_height = 24
     
+    # Get font metrics for baseline alignment
+    ascent, descent = font.getmetrics()
+    font_height = ascent + descent
+    y_offset = (char_height - font_height) // 2
+    # Ensure y_offset is not negative
+    if y_offset < 0: y_offset = 0
+
     # Prepare the output content
     c_code = []
     c_code.append("#ifndef FONT_16X24_H")
@@ -24,34 +36,32 @@ def generate_c_font(font_path, size, output_file):
     c_code.append("")
     c_code.append(f"// Font: Consolas {size}px")
     c_code.append(f"// Size: {char_width}x{char_height}")
+    c_code.append(f"// ASCII: 32-126, Hebrew: 0x05D0-0x05EA")
     c_code.append("")
-    c_code.append(f"static const uint16_t font_16x24[{len(chars)} * {char_height}] = {{")
+    c_code.append(f"static const uint16_t font_16x24[{len(all_chars)} * {char_height}] = {{")
 
-    for char_code in chars:
+    for char_code in all_chars:
         char = chr(char_code)
         
         # Create an image for the character
         image = Image.new("1", (char_width, char_height), 0)
         draw = ImageDraw.Draw(image)
         
-        # Get bounding box to center
-        bbox = font.getbbox(char)
-        if bbox:
-            w = bbox[2] - bbox[0]
-            h = bbox[3] - bbox[1]
-            x = (char_width - w) // 2 - bbox[0]
-            y = (char_height - h) // 2 - bbox[1]
-        else:
-            x = 0
-            y = 0
-            
-        # Draw the character
-        draw.text((x, y), char, font=font, fill=1)
+        # Get width of the character
+        w = font.getlength(char)
+        # Center horizontally
+        x = (char_width - w) // 2
+        
+        # Draw text aligned to baseline
+        draw.text((x, y_offset), char, font=font, fill=1)
         
         # Safe comment for C
         safe_char = char
         if char == '\\':
             safe_char = '\\\\'
+        elif char_code > 126:
+            safe_char = f"U+{char_code:04X}"
+            
         c_code.append(f"    // '{safe_char}'")
         
         # Convert to bits

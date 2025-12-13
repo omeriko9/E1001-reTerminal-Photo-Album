@@ -10,6 +10,7 @@
 #include "board_config.h"
 
 #include <string.h>
+#include <sys/stat.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_http_server.h"
@@ -211,19 +212,28 @@ static const char HTML_SCRIPT[] =
     "document.getElementById('sd-status').textContent=d.sd_mounted?'Mounted':'Not Found';"
     "document.getElementById('free-space').textContent=(d.free_mb||0)+'MB'}}"
 
+    "let imgObserver=new IntersectionObserver((entries,obs)=>{"
+    "entries.forEach(entry=>{"
+    "if(entry.isIntersecting){"
+    "const img=entry.target;"
+    "img.src=img.dataset.src;"
+    "img.classList.remove('lazy');"
+    "obs.unobserve(img)}})});"
+
     "async function refreshImages(){"
     "const d=await fetchJSON(API+'/images');"
     "const g=document.getElementById('images-grid');"
     "if(!d||!d.images){g.innerHTML='<p>No images</p>';return}"
     "g.innerHTML=d.images.map((img,i)=>"
     "'<div class=\"image-card\">"
-    "<div class=\"preview\"><img src=\"'+API+'/files/'+encodeURIComponent(img.name)+'\" style=\"max-width:100%;max-height:100%;object-fit:contain\" onerror=\"this.style.display=\\'none\\';this.parentNode.innerText=\\''+img.name.split('.').pop().toUpperCase()+'\\'\"></div>"
+    "<div class=\"preview\"><img data-src=\"'+API+'/thumb/'+encodeURIComponent(img.name)+'\" src=\"data:image/svg+xml,%3Csvg xmlns=\\'http://www.w3.org/2000/svg\\' viewBox=\\'0 0 16 9\\' fill=\\'%23333\\'%3E%3Crect width=\\'16\\' height=\\'9\\'/%3E%3C/svg%3E\" class=\"lazy\" style=\"max-width:100%;max-height:100%;object-fit:contain\" onerror=\"this.style.display=\\'none\\';this.parentNode.innerText=\\''+img.name.split('.').pop().toUpperCase()+'\\'\"></div>"
     "<div class=\"info\"><div class=\"name\">'+img.name+'</div>"
     "<div class=\"size\">'+(img.size/1024).toFixed(1)+' KB</div></div>"
     "<div class=\"actions\">"
     "<button onclick=\"displayImage('+i+')\" class=\"secondary\">📺</button>"
     "<button onclick=\"deleteImage(\\''+img.name+'\\')\" class=\"danger\">🗑️</button>"
-    "</div></div>').join('')}"
+    "</div></div>').join('');"
+    "document.querySelectorAll('img.lazy').forEach(img=>imgObserver.observe(img))}"
 
     "async function loadSettings(){"
     "const d=await fetchJSON(API+'/settings');"
@@ -621,56 +631,15 @@ static esp_err_t handle_upload(httpd_req_t *req)
 
     ESP_LOGI(TAG, "Upload: %s (%d bytes)", filename, file_size);
 
-    // Process image if needed
-    const char *format = img_detect_format(file_data, file_size);
-    uint8_t *processed = NULL;
-    size_t processed_size = 0;
-
-    if (strcmp(format, "raw") != 0 && strcmp(format, "bmp") == 0)
-    {
-        // Convert to e-ink format
-        processed = heap_caps_malloc(EPAPER_BUFFER_SIZE, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-        if (processed)
-        {
-            img_process_opts_t opts;
-            img_get_default_opts(&opts);
-            
-            // Use current settings for conversion
-            app_settings_t settings;
-            storage_load_settings(&settings);
-            opts.fit_mode = settings.fit_mode;
-
-            if (img_process(file_data, file_size, processed, EPAPER_BUFFER_SIZE, &opts) == ESP_OK)
-            {
-                // Change extension to .bin
-                char *ext = strrchr(filename, '.');
-                if (ext)
-                    strcpy(ext, ".bin");
-                else
-                    strcat(filename, ".bin");
-
-                processed_size = EPAPER_BUFFER_SIZE;
-            }
-            else
-            {
-                free(processed);
-                processed = NULL;
-            }
-        }
-    }
-
-    esp_err_t ret;
-    if (processed)
-    {
-        ret = storage_save_image(filename, processed, processed_size);
-        free(processed);
-    }
-    else
-    {
-        ret = storage_save_image(filename, file_data, file_size);
-    }
-
+    // Save original file
+    esp_err_t ret = storage_save_image(filename, file_data, file_size);
     free(file_data);
+
+    if (ret == ESP_OK)
+    {
+        // Process image (generate thumbnail and optimized bin)
+        img_process_upload(filename);
+    }
 
     cJSON *root = cJSON_CreateObject();
     cJSON_AddBoolToObject(root, "success", ret == ESP_OK);
@@ -989,6 +958,66 @@ static esp_err_t handle_get_file(httpd_req_t *req)
     return ESP_OK;
 }
 
+static esp_err_t handle_get_thumbnail(httpd_req_t *req)
+{
+    const char *filename_ptr = strrchr(req->uri, '/');
+    if (!filename_ptr)
+    {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid filename");
+        return ESP_FAIL;
+    }
+    filename_ptr++; // Skip '/'
+
+    char filename[MAX_FILENAME_LEN];
+    strncpy(filename, filename_ptr, sizeof(filename) - 1);
+    filename[sizeof(filename) - 1] = '\0';
+
+    // URL decode
+    char *dst = filename;
+    for (char *src = filename; *src; src++)
+    {
+        if (*src == '%' && src[1] && src[2])
+        {
+            int val;
+            sscanf(src + 1, "%2x", &val);
+            *dst++ = (char)val;
+            src += 2;
+        }
+        else
+        {
+            *dst++ = *src;
+        }
+    }
+    *dst = '\0';
+
+    // Append .thumb
+    char thumb_path[MAX_FILENAME_LEN + 8];
+    snprintf(thumb_path, sizeof(thumb_path), "%s.thumb", filename);
+
+    // Check if file exists to avoid error log
+    char full_path[128];
+    snprintf(full_path, sizeof(full_path), "%s/%s", IMAGES_DIR, thumb_path);
+    struct stat st;
+    if (stat(full_path, &st) != 0) {
+        httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "Thumbnail not found");
+        return ESP_FAIL;
+    }
+
+    uint8_t *data = NULL;
+    size_t size = 0;
+    // Try to load thumbnail
+    if (storage_load_image(thumb_path, &data, &size) != ESP_OK)
+    {
+        httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "Thumbnail not found");
+        return ESP_FAIL;
+    }
+
+    httpd_resp_set_type(req, "image/bmp");
+    httpd_resp_send(req, (const char *)data, size);
+    free(data);
+    return ESP_OK;
+}
+
 static esp_err_t handle_captive_portal(httpd_req_t *req)
 {
     ESP_LOGI(TAG, "Captive portal redirect for URI: %s", req->uri);
@@ -1005,8 +1034,8 @@ esp_err_t webserver_start(void) {
     
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.uri_match_fn = httpd_uri_match_wildcard;
-    config.max_uri_handlers = 16;
-    config.stack_size = 12288;       // Increased stack size
+    config.max_uri_handlers = 20;    // Increased from 16 to accommodate all handlers
+    config.stack_size = 32768;       // Increased stack size for image processing
     config.lru_purge_enable = false; // Disable LRU purge for stability
     config.max_open_sockets = 4;     // Conservative socket limit
     
@@ -1033,6 +1062,7 @@ esp_err_t webserver_start(void) {
         { .uri = "/api/restart", .method = HTTP_POST, .handler = handle_restart },
         { .uri = "/api/reset", .method = HTTP_POST, .handler = handle_reset },
         { .uri = "/api/files/*", .method = HTTP_GET, .handler = handle_get_file },
+        { .uri = "/api/thumb/*", .method = HTTP_GET, .handler = handle_get_thumbnail },
         // Captive Portal catch-all
         { .uri = "*", .method = HTTP_GET, .handler = handle_captive_portal }
     };

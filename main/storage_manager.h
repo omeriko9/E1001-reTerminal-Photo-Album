@@ -158,3 +158,8 @@ esp_err_t storage_format_sd(void);
  * @brief Create images directory if it doesn't exist
  */
 esp_err_t storage_create_images_dir(void);
+
+/**
+ * @brief Check for images missing optimizations and process them
+ */
+void storage_process_missing_optimizations(void);
