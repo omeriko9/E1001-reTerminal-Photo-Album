@@ -346,19 +346,40 @@ void img_gray_to_1bpp(const uint8_t *gray_in, uint16_t width, uint16_t height,
         return;
     }
 
-    // Copy to int16 buffer for dithering
+    // First pass: find min/max for contrast stretching
+    int min_val = 255, max_val = 0;
     for (size_t i = 0; i < pixels; i++)
     {
-        gray[i] = gray_in[i];
+        int val = gray_in[i];
+        if (val < min_val) min_val = val;
+        if (val > max_val) max_val = val;
+    }
+
+    ESP_LOGI(TAG, "Grayscale range: %d - %d", min_val, max_val);
+
+    // Copy to int16 buffer with optional contrast stretching
+    int range = max_val - min_val;
+    if (range > 0 && range < 200) {
+        ESP_LOGI(TAG, "Applying contrast enhancement (range=%d)", range);
+        for (size_t i = 0; i < pixels; i++) {
+            int val = ((gray_in[i] - min_val) * 255) / range;
+            gray[i] = (val < 0) ? 0 : (val > 255) ? 255 : val;
+        }
+    } else {
+        for (size_t i = 0; i < pixels; i++) {
+            gray[i] = gray_in[i];
+        }
     }
 
     // Apply dithering
     switch (opts->dither)
     {
     case DITHER_FLOYD:
+        ESP_LOGI(TAG, "Applying Floyd-Steinberg dithering");
         dither_floyd_steinberg(gray, width, height);
         break;
     case DITHER_ATKINSON:
+        ESP_LOGI(TAG, "Applying Atkinson dithering");
         dither_atkinson(gray, width, height);
         break;
     case DITHER_NONE:
@@ -403,26 +424,47 @@ void img_rgb_to_1bpp(const uint8_t *rgb, uint16_t width, uint16_t height,
         return;
     }
 
+    // First pass: convert to grayscale and find min/max for contrast stretching
+    int min_val = 255, max_val = 0;
     for (size_t i = 0; i < pixels; i++)
     {
         // Luminance formula: 0.299*R + 0.587*G + 0.114*B
         int r = rgb[i * 3 + 0];
         int g = rgb[i * 3 + 1];
         int b = rgb[i * 3 + 2];
-        gray[i] = (r * 77 + g * 150 + b * 29) >> 8;
+        int val = (r * 77 + g * 150 + b * 29) >> 8;
+        gray[i] = val;
+        if (val < min_val) min_val = val;
+        if (val > max_val) max_val = val;
+    }
+
+    ESP_LOGI(TAG, "Image grayscale range: %d - %d", min_val, max_val);
+
+    // Apply contrast stretching if image has limited dynamic range
+    int range = max_val - min_val;
+    if (range > 0 && range < 200) {
+        ESP_LOGI(TAG, "Applying contrast enhancement (range=%d)", range);
+        for (size_t i = 0; i < pixels; i++) {
+            // Stretch to full 0-255 range
+            int val = ((gray[i] - min_val) * 255) / range;
+            gray[i] = (val < 0) ? 0 : (val > 255) ? 255 : val;
+        }
     }
 
     // Apply dithering
     switch (opts->dither)
     {
     case DITHER_FLOYD:
+        ESP_LOGI(TAG, "Applying Floyd-Steinberg dithering");
         dither_floyd_steinberg(gray, width, height);
         break;
     case DITHER_ATKINSON:
+        ESP_LOGI(TAG, "Applying Atkinson dithering (best for e-ink)");
         dither_atkinson(gray, width, height);
         break;
     case DITHER_NONE:
     default:
+        ESP_LOGI(TAG, "Applying simple threshold=%d", opts->threshold);
         // Simple threshold
         for (size_t i = 0; i < pixels; i++)
         {
@@ -450,6 +492,7 @@ void img_rgb_to_1bpp(const uint8_t *rgb, uint16_t width, uint16_t height,
     }
 
     free(gray);
+    ESP_LOGI(TAG, "RGB to 1BPP conversion complete");
 }
 
 static void free_image_buffer(uint8_t *buf, bool from_stbi)
@@ -990,11 +1033,19 @@ static esp_err_t generate_thumbnail_tjpgd(const char *filename, const char *thum
 }
 
 esp_err_t img_process_upload(const char *filename) {
-    ESP_LOGI(TAG, "Processing upload: %s", filename);
+    ESP_LOGI(TAG, "=== Processing upload: %s ===", filename);
     
     // Determine file extension
     const char *ext = strrchr(filename, '.');
     bool is_jpeg = ext && (strcasecmp(ext, ".jpg") == 0 || strcasecmp(ext, ".jpeg") == 0);
+    bool is_png = ext && strcasecmp(ext, ".png") == 0;
+    bool is_bmp = ext && strcasecmp(ext, ".bmp") == 0;
+    
+    ESP_LOGI(TAG, "File type: %s%s%s%s", 
+             is_jpeg ? "JPEG" : "", 
+             is_png ? "PNG" : "", 
+             is_bmp ? "BMP" : "",
+             (!is_jpeg && !is_png && !is_bmp) ? "Unknown" : "");
     
     // 1. Generate Thumbnail
     char thumb_path[256];
@@ -1002,10 +1053,13 @@ esp_err_t img_process_upload(const char *filename) {
     
     bool thumb_generated = false;
     
+    ESP_LOGI(TAG, "Generating thumbnail...");
+    
     // Try stbi_load first
     int w, h, comp;
     stbi_uc *img = stbi_load(filename, &w, &h, &comp, 3); 
     if (img) {
+        ESP_LOGI(TAG, "Image loaded: %dx%d, %d components", w, h, comp);
         int thumb_w = 160;
         int thumb_h = 120;
         uint8_t *thumb = malloc(thumb_w * thumb_h * 3);
@@ -1025,19 +1079,23 @@ esp_err_t img_process_upload(const char *filename) {
             
             if (img_save_bmp(thumb_path, thumb, thumb_w, thumb_h, 3) == ESP_OK) {
                 thumb_generated = true;
-                ESP_LOGI(TAG, "Thumbnail generated: %s", thumb_path);
+                ESP_LOGI(TAG, "Thumbnail saved: %s", thumb_path);
+            } else {
+                ESP_LOGW(TAG, "Failed to save thumbnail");
             }
             free(thumb);
+        } else {
+            ESP_LOGW(TAG, "Failed to allocate thumbnail buffer");
         }
         stbi_image_free(img);
     } else if (is_jpeg) {
         // stbi failed - try TJpgDec for large JPEGs
-        ESP_LOGW(TAG, "stbi failed for %s, trying TJpgDec", filename);
+        ESP_LOGW(TAG, "stbi_load failed: %s, trying TJpgDec", stbi_failure_reason());
         if (generate_thumbnail_tjpgd(filename, thumb_path) == ESP_OK) {
             thumb_generated = true;
         }
     } else {
-        ESP_LOGW(TAG, "Failed to load image for thumbnail: %s", filename);
+        ESP_LOGW(TAG, "Failed to load image: %s", stbi_failure_reason());
     }
     
     if (!thumb_generated) {
@@ -1054,10 +1112,19 @@ esp_err_t img_process_upload(const char *filename) {
     else strcat(bin_path, ".bin");
 
     // If input is already .bin, skip
-    if (strcmp(filename, bin_path) == 0) return ESP_OK;
+    if (strcmp(filename, bin_path) == 0) {
+        ESP_LOGI(TAG, "Input is already .bin format, skipping conversion");
+        return ESP_OK;
+    }
 
+    ESP_LOGI(TAG, "Generating optimized binary: %s", bin_path);
+    
     // Process to .bin
     uint8_t *processed = heap_caps_malloc(EPAPER_BUFFER_SIZE, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!processed) {
+        processed = malloc(EPAPER_BUFFER_SIZE);
+    }
+    
     if (processed) {
         img_process_opts_t opts;
         img_get_default_opts(&opts);
@@ -1066,18 +1133,31 @@ esp_err_t img_process_upload(const char *filename) {
         app_settings_t settings;
         if (storage_load_settings(&settings) == ESP_OK) {
             opts.fit_mode = settings.fit_mode;
+            ESP_LOGI(TAG, "Using fit_mode=%d from settings", opts.fit_mode);
         }
 
-        if (img_process_file(filename, processed, EPAPER_BUFFER_SIZE, &opts) == ESP_OK) {
+        esp_err_t ret = img_process_file(filename, processed, EPAPER_BUFFER_SIZE, &opts);
+        if (ret == ESP_OK) {
             FILE *f = fopen(bin_path, "wb");
             if (f) {
-                fwrite(processed, 1, EPAPER_BUFFER_SIZE, f);
+                size_t written = fwrite(processed, 1, EPAPER_BUFFER_SIZE, f);
                 fclose(f);
-                ESP_LOGI(TAG, "Optimized binary generated: %s", bin_path);
+                if (written == EPAPER_BUFFER_SIZE) {
+                    ESP_LOGI(TAG, "Optimized binary saved: %s (%d bytes)", bin_path, EPAPER_BUFFER_SIZE);
+                } else {
+                    ESP_LOGE(TAG, "Failed to write full binary (wrote %d of %d)", (int)written, EPAPER_BUFFER_SIZE);
+                }
+            } else {
+                ESP_LOGE(TAG, "Failed to create binary file: %s", bin_path);
             }
+        } else {
+            ESP_LOGE(TAG, "Image processing failed: %s", esp_err_to_name(ret));
         }
         free(processed);
+    } else {
+        ESP_LOGE(TAG, "Failed to allocate %d bytes for processing", EPAPER_BUFFER_SIZE);
     }
 
+    ESP_LOGI(TAG, "=== Upload processing complete ===");
     return ESP_OK;
 }
